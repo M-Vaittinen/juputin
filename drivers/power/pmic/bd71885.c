@@ -30,6 +30,14 @@ static const struct pmic_child_info pmic_children_info[] = {
 	{ },
 };
 
+enum {
+	TYPE_VOLTAGE,
+	TYPE_CURRENT,
+	TYPE_POWER,
+	TYPE_TEMPERATURE,
+	#define TYPE_MAX TYPE_TEMPERATURE
+};
+
 #if 0
 static int tmp_update_bits(struct udevice *ud, uint reg, uint mask, uint val)
 {
@@ -95,7 +103,7 @@ static struct udevice *currdev;
 
 static int failure(int ret)
 {
-	pr_err("Error: %d (%s)\n", ret, errno_str(ret));
+	printf("Error: %d (%s)\n", ret, errno_str(ret));
 
 	return CMD_RET_FAILURE;
 }
@@ -121,14 +129,14 @@ static int bd718xx_init_press_duration(struct udevice *ud)
 				printf("writing %u to 0x%x\n", i, BD71885_REG_PBTNCONFIG);
 				ret = pmic_clrsetbits(ud, BD71885_REG_PBTNCONFIG, BD71885_SHORT_PRESS_MASK, i);
 				if (ret) {
-					pr_err("Writing short_press failed %d\n", ret);
+					printf("Writing short_press failed %d\n", ret);
 					return ret;
 				}
 				break;
 			}
 		}
 		if (i == ARRAY_SIZE(short_durations))
-			pr_err("Bad short-press duration %d\n", short_press_ms);
+			printf("Bad short-press duration %d\n", short_press_ms);
 	}
 
 	ret = dev_read_u32u(ud, "rohm,mid-press-ms", &mid_press_ms);
@@ -139,14 +147,14 @@ static int bd718xx_init_press_duration(struct udevice *ud)
 				printf("writing %u to 0x%x\n", i << 2, BD71885_REG_PBTNCONFIG);
 				ret = pmic_clrsetbits(ud, BD71885_REG_PBTNCONFIG, BD71885_MID_PRESS_MASK, i << 2);
 				if (ret) {
-					pr_err("Writing mid_press failed %d\n", ret);
+					printf("Writing mid_press failed %d\n", ret);
 					return ret;
 				}
 				break;
 			}
 		}
 		if (i == ARRAY_SIZE(mid_durations))
-			pr_err("Bad mid-press duration %d\n", mid_press_ms);
+			printf("Bad mid-press duration %d\n", mid_press_ms);
 	}
 
 	ret = dev_read_u32u(ud, "rohm,long-press-ms", &long_press_ms);
@@ -157,20 +165,20 @@ static int bd718xx_init_press_duration(struct udevice *ud)
 				printf("writing %u to 0x%x\n", i << 4, BD71885_REG_PBTNCONFIG);
 				ret = pmic_clrsetbits(ud, BD71885_REG_PBTNCONFIG, BD71885_LONG_PRESS_MASK, i << 4);
 				if (ret) {
-					pr_err("Writing long_press failed %d\n", ret);
+					printf("Writing long_press failed %d\n", ret);
 					return ret;
 				}
 				break;
 			}
 		}
 		if (i == ARRAY_SIZE(long_durations))
-			pr_err("Bad long-press duration %d\n", long_press_ms);
+			printf("Bad long-press duration %d\n", long_press_ms);
 	}
 	ret =  dev_read_u32u(ud, "rohm,sense-resistor-ohms", &g_r_sense);
 	if (!ret)
 		printf("R_sense set to %u Ohms\n", g_r_sense);
 	else
-		pr_err("No sense resistor value found\n");
+		printf("No sense resistor value found\n");
 
 	return 0;
 }
@@ -274,7 +282,7 @@ static int get_dev(void)
 	if (!currdev) {
 		ret = pmic_get(name, &currdev);
 		if (ret) {
-			pr_err("Can't get PMIC: %s!\n", name);
+			printf("Can't get PMIC: %s!\n", name);
 			return ret;
 		}
 
@@ -294,7 +302,7 @@ static int do_dt_init(struct cmd_tbl *cmdtp, int flag, int argc, char *const arg
 
 	ret = bd718xx_init_press_duration(currdev);
 	if (ret) {
-		pr_err("Failed to configure power-button (%d)\n", ret);
+		printf("Failed to configure power-button (%d)\n", ret);
 		return failure(ret);
 	}
 
@@ -452,7 +460,7 @@ static int do_set_state(struct cmd_tbl *cmdtp, int flag, int argc,
 			if (is_suspend(ret))
 				gpio_set(SUSPEND_GPIO_PIN, GPIO_LOW);
 		} else {
-			pr_err("Don't know how to transfer '%s' => IDLE\n",
+			printf("Don't know how to transfer '%s' => IDLE\n",
 			       state2txt(ret));
 			ret = -EINVAL;
 		}
@@ -468,12 +476,12 @@ static int do_set_state(struct cmd_tbl *cmdtp, int flag, int argc,
 			if (is_suspend(ret))
 				gpio_set(SUSPEND_GPIO_PIN, GPIO_LOW);
 		} else {
-			pr_err("Don't know how to transfer '%s' => RUN\n",
+			printf("Don't know how to transfer '%s' => RUN\n",
 			       state2txt(ret));
 			ret = -EINVAL;
 		}
 	} else {
-		pr_err("Unkown state '%s'. Valid ones are run, idle, suspend\n",
+		printf("Unkown state '%s'. Valid ones are run, idle, suspend\n",
 		       state);
 		ret = -EINVAL;
 	}
@@ -528,7 +536,6 @@ static int do_get_state(struct cmd_tbl *cmdtp, int flag, int argc,
 #define BD71885_ADC_ACCUM_STOP BIT(1)
 #define BD71885_ADC_ACCUM_START BIT(0)
 
-#define ADC_SRC_VOLTAGE			0
 
 static int get_adc_accum(void)
 {
@@ -537,7 +544,7 @@ static int get_adc_accum(void)
 	ret = pmic_reg_read(currdev, BD71885_ADC_ACCUM_KICK);
 
 	if (ret < 0) {
-		pr_err("Could not get ADC ACCUM state\n");
+		printf("Could not get ADC ACCUM state\n");
 
 		return 0;
 	}
@@ -653,7 +660,7 @@ static int __get_adc_source(void)
 	ret >>= BD71885_ADC_ACCUM_SRC_SIFT;
 
 	if (ret >= 3) {
-		pr_err("Bad ADC accum source %d\n", ret);
+		printf("Bad ADC accum source %d\n", ret);
 
 		return -EINVAL;
 	}
@@ -717,7 +724,7 @@ static int accum_stopped_config_helper(struct udevice *ud, uint reg, uint mask,
 	ret = pmic_clrsetbits(ud, reg, mask, val);
 	if (ret) {
 		if (started)
-			pr_err("ADC config failed, ADC stopped\n");
+			printf("ADC config failed, ADC stopped\n");
 
 		return ret;
 	}
@@ -725,7 +732,7 @@ static int accum_stopped_config_helper(struct udevice *ud, uint reg, uint mask,
 	if (started) {
 		ret = start_adc_accum();
 		if (ret)
-			pr_err("Could not restart ADC\n");
+			printf("Could not restart ADC\n");
 	}
 
 	return ret;
@@ -768,16 +775,35 @@ static int do_adc_gain(struct cmd_tbl *cmdtp, int flag, int argc,
 	return CMD_RET_SUCCESS;
 
 ret_usage:
-	pr_err("Bad gain. Should be one of [15, 30, 60, 100]\n");
+	printf("Bad gain. Should be one of [15, 30, 60, 100]\n");
 
 	return CMD_RET_USAGE;
+}
+
+static int __set_adc_source(int src)
+{
+	int ret;
+
+	if (src < TYPE_VOLTAGE || src > TYPE_POWER) {
+		printf("Bad ADC source\n");
+		return -EINVAL;
+	}
+
+	src <<= BD71885_ADC_ACCUM_SRC_SIFT;
+
+	ret = accum_stopped_config_helper(currdev, BD71885_ADC_CTRL_1,
+					  BD71885_ADC_ACCUM_SRC, src);
+	if (ret)
+		printf("Failed to set ADC source\n");
+
+	return ret;
 }
 
 static int do_adc_source(struct cmd_tbl *cmdtp, int flag, int argc,
 			 char *const argv[])
 {
 	char *src;
-	int ret, reg;
+	int ret, src_no;
 
 	ret = get_dev();
 	if (ret)
@@ -792,19 +818,18 @@ static int do_adc_source(struct cmd_tbl *cmdtp, int flag, int argc,
 	src = argv[1];
 
 	if (!strcmp(src, "voltage")) {
-		reg = 0;
+		src_no = TYPE_VOLTAGE;
 	} else if (!strcmp(src, "current")) {
-		reg = 1 << BD71885_ADC_ACCUM_SRC_SIFT;
+		src_no = TYPE_CURRENT;
 	} else if (!strcmp(src, "power")) {
-		reg = 2 << BD71885_ADC_ACCUM_SRC_SIFT;
+		src_no = TYPE_POWER;
 	} else {
-		pr_err("Unsupported ADC accum source\n");
+		printf("Unsupported ADC accum source\n");
 
 		return CMD_RET_USAGE;
 	}
 
-	ret = accum_stopped_config_helper(currdev, BD71885_ADC_CTRL_1,
-					  BD71885_ADC_ACCUM_SRC, reg);
+	ret = __set_adc_source(src_no);
 	if (ret)
 		return failure(ret);
 
@@ -847,7 +872,7 @@ static int __get_adc_vol_source(const struct bd71885_adc_vol_src **src)
 	ret &= BD71885_ADC_ACCUM_VOL_SRC;
 
 	if (ret >= 0x0f) {
-		pr_err("Bad ADC accum voltage source %d\n", ret);
+		printf("Bad ADC accum voltage source %d\n", ret);
 
 		return -EINVAL;
 	}
@@ -889,8 +914,8 @@ static int do_adc_vol_source(struct cmd_tbl *cmdtp, int flag, int argc,
 	if (argc != 2)
 		return CMD_RET_USAGE;
 
-	if (ADC_SRC_VOLTAGE !=  __get_adc_source()) {
-		pr_err("ADC ACCUM not set to accumulate voltage\n");
+	if (TYPE_VOLTAGE !=  __get_adc_source()) {
+		printf("ADC ACCUM not set to accumulate voltage\n");
 		get_adc_source();
 
 		return failure(-EINVAL);
@@ -904,7 +929,7 @@ static int do_adc_vol_source(struct cmd_tbl *cmdtp, int flag, int argc,
 
 	}
 	if (i == ARRAY_SIZE(adc_vol_sources)) {
-		pr_err("Unsupported ADC accum voltage source\n");
+		printf("Unsupported ADC accum voltage source\n");
 
 		return CMD_RET_USAGE;
 	}
@@ -916,14 +941,6 @@ static int do_adc_vol_source(struct cmd_tbl *cmdtp, int flag, int argc,
 
 	return CMD_RET_SUCCESS;
 }
-
-enum {
-	TYPE_VOLTAGE,
-	TYPE_CURRENT,
-	TYPE_POWER,
-	TYPE_TEMPERATURE,
-	#define TYPE_MAX TYPE_TEMPERATURE
-};
 
 static int get_operation_type(char *arg)
 {
@@ -942,7 +959,7 @@ static int get_operation_type(char *arg)
 		return TYPE_TEMPERATURE;
 	}
 
-	pr_err("Invalid operation\n");
+	printf("Invalid operation\n");
 	return -EINVAL;
 }
 
@@ -968,7 +985,7 @@ static int get_limit_type(char *arg)
 		return LIMIT_TYPE_TEMPERATURE;
 	}
 
-	pr_err("Invalid limit type\n");
+	printf("Invalid limit type\n");
 	return -EINVAL;
 }
 
@@ -1036,7 +1053,7 @@ static int get_avg_voltage(struct udevice *ud, uint64_t *value, uint64_t *accum)
 	if (ret)
 		return ret;
 
-	pr_info("Measured voltage for source '%s'\n", src->name);
+	printf("Measured voltage for source '%s'\n", src->name);
 
 	ret = get_adc_accum_avg(ud, value, accum);
 	if (ret)
@@ -1172,7 +1189,7 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 	ret = pmic_clrsetbits(ud, BD71885_ADC_CTRL_2, BD71885_ADC_INTERVAL_MASK,
 			      ireg);
 	if (ret) {
-		pr_err("Setting interval failed\n");
+		printf("Setting interval failed\n");
 
 		return failure(ret);
 	}
@@ -1181,7 +1198,7 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 
 	ret = bd71885_adc_set_num_samples(ud, samples);
 	if (ret) {
-		pr_err("Setting sample amount failed\n");
+		printf("Setting sample amount failed\n");
 		return failure(ret);
 	}
 	if (ret)
@@ -1231,7 +1248,7 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 		       samples, interval, avg, accum);
 		break;
 	default:
-		pr_err("Unknown type\n");
+		printf("Unknown type\n");
 		ret = -EINVAL;
 		break;
 	}
@@ -1248,15 +1265,19 @@ static int do_adc_meas(struct cmd_tbl *cmdtp, int flag, int argc,
 	int type, ret;
 	char *eptr;
 
-	if (argc != 4)
+	if (argc != 4) {
+		printf("bd71885 adc_meas [v, i, p] <num_samples> <interval>\n");
 		return CMD_RET_USAGE;
+	}
 
 	type = get_operation_type(argv[1]);
-	if (type < 0 || type == TYPE_TEMPERATURE)
+	if (type < 0 || type == TYPE_TEMPERATURE) {
+		printf("Unknown measurement type, known types [v, i, p]\n");
 		return CMD_RET_USAGE;
+	}
 
 	if ( (type == TYPE_CURRENT || TYPE_POWER) && !g_r_sense) {
-		pr_err("sense-resistor not known\n");
+		printf("sense-resistor not known\n");
 
 		return failure(-EINVAL);
 	}
@@ -1276,6 +1297,11 @@ static int do_adc_meas(struct cmd_tbl *cmdtp, int flag, int argc,
 	if (ret)
 		return failure(ret);
 
+	ret = __set_adc_source(type);
+	if (ret)
+		return failure(ret);
+
+
 	return measure_avg(currdev, type, samples, interval);
 }
 
@@ -1288,7 +1314,7 @@ static int adc_set_accum_limit(struct udevice *ud, uint64_t limit)
 	char *tmp;
 
 	if (limit > 0x3FFFFFFFFULL) {
-		pr_err("Limit too big\n");
+		printf("Limit too big\n");
 		return -EINVAL;
 	}
 
@@ -1304,7 +1330,7 @@ static int adc_set_power_limit(struct udevice *ud, uint64_t limit)
 	u16 lim;
 
 	if (limit > 0x3FFF) {
-		pr_err("Limit too big\n");
+		printf("Limit too big\n");
 		return -EINVAL;
 	}
 
@@ -1321,7 +1347,7 @@ static int adc_set_temp_limit(struct udevice *ud, uint64_t limit)
 	u16 lim;
 
 	if (limit > 0x3ff) {
-		pr_err("Limit too big\n");
+		printf("Limit too big\n");
 		return -EINVAL;
 	}
 
@@ -1365,7 +1391,7 @@ static int do_adc_limit(struct cmd_tbl *cmdtp, int flag, int argc,
 		ret = adc_set_temp_limit(currdev, limit);
 		break;
 	default:
-		pr_err("Unknown type\n");
+		printf("Unknown type\n");
 		ret = -EINVAL;
 		break;
 	}
