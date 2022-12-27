@@ -25,6 +25,7 @@
 		rohm,short-press-ms = <30>;
 		rohm,mid-press-ms = <1000>;
 		rohm,long-press-ms = <5000>;
+		rohm,sense-resistor-ohms = <100000000>;
 
 		regulators {
 			buck1: BUCK1 {
