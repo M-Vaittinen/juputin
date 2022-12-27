@@ -79,27 +79,29 @@ enum {
 };
 
 static struct bd71885_plat bd71885_reg_data[] = {
-	BD_DATA(BUCK1, &buck123458_vranges[0], BD71885_BUCK1_ON),
-	BD_DATA(BUCK2, &buck123458_vranges[0], BD71885_BUCK2_ON),
-	BD_DATA(BUCK3, &buck123458_vranges[0], BD71885_BUCK3_ON),
-	BD_DATA(BUCK4, &buck123458_vranges[0], BD71885_BUCK4_ON),
-	BD_DATA(BUCK5, &buck123458_vranges[0], BD71885_BUCK5_ON),
-	BD_DATA(BUCK6, &buck67_vranges[0], BD71885_BUCK6_ON),
-	BD_DATA(BUCK7, &buck67_vranges[0], BD71885_BUCK7_ON),
-	BD_DATA(BUCK8, &buck123458_vranges[0], BD71885_BUCK8_ON),
+	BD_DATA(BUCK1, buck123458_vranges, BD71885_BUCK1_ON),
+	BD_DATA(BUCK2, buck123458_vranges, BD71885_BUCK2_ON),
+	BD_DATA(BUCK3, buck123458_vranges, BD71885_BUCK3_ON),
+	BD_DATA(BUCK4, buck123458_vranges, BD71885_BUCK4_ON),
+	BD_DATA(BUCK5, buck123458_vranges, BD71885_BUCK5_ON),
+	BD_DATA(BUCK6, buck67_vranges, BD71885_BUCK6_ON),
+	BD_DATA(BUCK7, buck67_vranges, BD71885_BUCK7_ON),
+	BD_DATA(BUCK8, buck123458_vranges, BD71885_BUCK8_ON),
 #ifndef OTP_LDO1_HIRANGE
-	BD_DATA(LDO1, &ldo_lo_vranges[0], BD71885_LDO1_ON),
+	BD_DATA(LDO1, ldo_lo_vranges, BD71885_LDO1_ON),
 #else
-	BD_DATA(LDO1, &ldo_hi_vranges[0], BD71885_LDO1_ON),
+	BD_DATA(LDO1, ldo_hi_vranges, BD71885_LDO1_ON),
 #endif
-	BD_DATA(LDO2, &ldo_hi_vranges[0], BD71885_LDO2_ON),
+	BD_DATA(LDO2, ldo_hi_vranges, BD71885_LDO2_ON),
 #ifndef OTP_LDO3_HIRANGE
-	BD_DATA(LDO3, &ldo_lo_vranges[0], BD71885_LDO3_ON),
+	BD_DATA(LDO3, ldo_lo_vranges, BD71885_LDO3_ON),
 #else
-	BD_DATA(LDO3, &ldo_hi_vranges[0], BD71885_LDO3_ON),
+	BD_DATA(LDO3, ldo_hi_vranges, BD71885_LDO3_ON),
 #endif
-	BD_DATA(LDO4, &ldo_hi_vranges[0], BD71885_LDO4_ON),
+	BD_DATA(LDO4, ldo_hi_vranges, BD71885_LDO4_ON),
 };
+
+static int bd71885_get_value(struct udevice *dev);
 
 static int bd71885_get_enable(struct udevice *dev)
 {
@@ -138,8 +140,11 @@ static int bd71885_get_value(struct udevice *dev)
 		int buck5_range;
 
 		buck5_range = pmic_reg_read(dev->parent, BD71885_BUCK5_MODE);
-		if (buck5_range < 0)
+		if (buck5_range < 0) {
+			printf("Range reading failed\n");
+
 			return buck5_range;
+		}
 
 		/*
 		 * The BUCK5 has special range selection. Select correct ranges
@@ -157,15 +162,17 @@ static int bd71885_get_value(struct udevice *dev)
 
 get:
 	sel = pmic_reg_read(dev->parent, plat->vsel_reg);
-	if (sel < 0)
-		return sel;
+	if (sel < 0) {
+		printf("sel reading failed\n");
 
-	for (i = 0; i < plat->numranges; i++) {
-		if (!vrange_find_value(&r[i], sel, &tmp))
-			return tmp;
+		return sel;
 	}
 
-	pr_err("Unknown voltage value\n");
+	for (i = 0; i < plat->numranges; i++)
+		if (!vrange_find_value(&r[i], sel, &tmp))
+			return tmp;
+
+	printf("Unknown voltage value\n");
 
 	return -EINVAL;
 }
@@ -242,7 +249,7 @@ try_set:
 	 */
 	if (retry == 2) {
 		if (bd71885_get_enable(dev)) {
-			pr_err("BUCK5 enabled, can't set range\n");
+			printf("BUCK5 enabled, can't set range\n");
 			return -EBUSY;
 		}
 		buck5_range = ~(BD71885_BUCK5_LORANGE & buck5_range);
@@ -267,7 +274,7 @@ static int bd71885_regulator_probe(struct udevice *dev)
 
 	parent = dev_get_parent(dev);
 	if (!parent) {
-		pr_err("No parent\n");
+		printf("No parent\n");
 		return -ENODEV;
 	}
 
@@ -280,10 +287,11 @@ static int bd71885_regulator_probe(struct udevice *dev)
 		return vendor;
 
 	if (prod_id != BD71885_PROD_ID_VAL || vendor != BD71885_VENDOR_VAL)
-		pr_warn("Unknown product/vendor\n");
+		printf("Unknown product/vendor\n");
 
 	for (i = 0; i < data_amnt; i++) {
 		if (!strcmp(dev->name, bd71885_reg_data[i].name)) {
+			printf("Probed '%s'\n", dev->name);
 			*plat = bd71885_reg_data[i];
 
 			uc_pdata = dev_get_uclass_plat(dev);
@@ -292,7 +300,7 @@ static int bd71885_regulator_probe(struct udevice *dev)
 		}
 	}
 
-	pr_err("Unknown regulator '%s'\n", dev->name);
+	printf("Unknown regulator '%s'\n", dev->name);
 
 	return -ENOENT;
 }
