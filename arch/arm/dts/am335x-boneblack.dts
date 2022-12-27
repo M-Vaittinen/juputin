@@ -15,6 +15,45 @@
 
 /* MVa Added */
 &i2c2 {
+	companionpmic: companion@6a {
+		compatible = "rohm,bd2956";
+		reg = <0x6a>;
+		/* GPIO 1_29 - (connector 8, pin 26) for irq */
+/*		interrupt-parent = <&gpio1>; */
+/*		interrupts = <29 GPIO_ACTIVE_LOW>; */
+/*		interrupts = <29 8>; */
+
+		regulators {
+			BUCK1 {
+				regulator-name = "BUCK1";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+/*				regulator-boot-on; */
+/*				regulator-always-on; */
+				regulator-ramp-delay = <1250>;
+			};
+			BUCK2 {
+				regulator-name = "BUCK2";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-always-on;
+				regulator-ramp-delay = <1250>;
+			};
+			BUCK3 {
+				regulator-name = "BUCK3";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+		//		regulator-boot-on;
+				rohm,no-regulator-enable-control;
+			};
+			BUCK4 {
+				regulator-name = "BUCK4";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-boot-on;
+			};
+		};
+	};
 	bdpmic: pmic@4b { /* the "test" defined as child of the i2c1 bus */
 		compatible = "rohm,bd71885";
 		reg = <0x4b>;
