@@ -549,6 +549,7 @@ static int get_adc_accum(void)
 static int set_adc_accum(bool enable, bool clear)
 {
 	uint val = 0;
+	int ret;
 
 	if (clear)
 		val |= BD71885_ADC_ACCUM_CLEAR;
@@ -558,7 +559,12 @@ static int set_adc_accum(bool enable, bool clear)
 	else
 		val |= BD71885_ADC_ACCUM_STOP;
 
-	return pmic_reg_write(currdev, BD71885_ADC_ACCUM_KICK, val);
+	ret = pmic_reg_write(currdev, BD71885_ADC_ACCUM_KICK, val);
+	if (ret)
+		printf("Failed to %s ADC accumulator\n",
+		       enable ? "start" : "stop");
+
+	return ret;
 }
 
 static int __stop_adc_accum(bool clear)
@@ -1030,7 +1036,7 @@ static int get_avg_voltage(struct udevice *ud, uint64_t *value, uint64_t *accum)
 	if (ret)
 		return ret;
 
-	printf("Measured voltage for source '%s'\n", src->name);
+	pr_info("Measured voltage for source '%s'\n", src->name);
 
 	ret = get_adc_accum_avg(ud, value, accum);
 	if (ret)
@@ -1165,10 +1171,19 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 
 	ret = pmic_clrsetbits(ud, BD71885_ADC_CTRL_2, BD71885_ADC_INTERVAL_MASK,
 			      ireg);
+	if (ret) {
+		pr_err("Setting interval failed\n");
+
+		return failure(ret);
+	}
 	if (ret)
 		return failure(ret);
 
 	ret = bd71885_adc_set_num_samples(ud, samples);
+	if (ret) {
+		pr_err("Setting sample amount failed\n");
+		return failure(ret);
+	}
 	if (ret)
 		return failure(ret);
 
