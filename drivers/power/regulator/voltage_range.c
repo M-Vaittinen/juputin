@@ -14,6 +14,7 @@ int vrange_find_value(struct regulator_vrange *r, unsigned int sel,
 		return -EINVAL;
 
 	*val = r->min_volt + r->step * (sel - r->min_sel);
+
 	return 0;
 }
 
