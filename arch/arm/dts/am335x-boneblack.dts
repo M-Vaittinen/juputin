@@ -16,7 +16,7 @@
 /* MVa Added */
 &i2c2 {
 	companionpmic: companion@6a {
-		compatible = "rohm,bd2956";
+		compatible = "rohm,bd2659";
 		reg = <0x6a>;
 		/* GPIO 1_29 - (connector 8, pin 26) for irq */
 /*		interrupt-parent = <&gpio1>; */
