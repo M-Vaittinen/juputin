@@ -1411,8 +1411,10 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 	if (ret)
 		return failure(ret);
 
-	printf("delaying for %lu usecs for %u times\n",
-	       meas_time, multiplier + 1);
+	printf("delaying for %lu usecs for %u times (%llu usec?)\n",
+	       meas_time, 10 * (multiplier + 1), multiplier ? 10LLU *
+		((unsigned long long)meas_time) *  ((unsigned long long)multiplier) :
+		(unsigned long long) meas_time);
 	/*
 	 * Here we should catch the IRQ but for the sake of the simplicity
 	 * we just sleep/delay for the time it takes to complete measurement.
