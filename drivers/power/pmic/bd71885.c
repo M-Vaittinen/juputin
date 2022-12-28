@@ -17,6 +17,9 @@
 #include <power/bd71885.h>
 #include "bdxxxx.h"
 
+/* TODO: remove me */
+#define CHECK_OVERFLOW
+
 DECLARE_GLOBAL_DATA_PTR;
 
 /* Board specific sense resistor value read from the device-tree */
@@ -866,8 +869,10 @@ static int __get_adc_vol_source(const struct bd71885_adc_vol_src **src)
 	int ret;
 
 	ret = pmic_reg_read(currdev, BD71885_ADC_CTRL_1);
-	if (ret < 0)
+	if (ret < 0) {
+		printf("Could not get ADC source\n");
 		return ret;
+	}
 
 	ret &= BD71885_ADC_ACCUM_VOL_SRC;
 
@@ -990,321 +995,6 @@ static int get_limit_type(char *arg)
 }
 
 
-
-#define BD71885_ADC_NUM_SAMPLES_BASE	0x6d
-#define BD71885_MAX_ADC_SAMPLES 0x3fffff
-
-static int bd71885_adc_set_num_samples(struct udevice *ud, long samples)
-{
-	int val = cpu_to_be32(samples) << 8;
-
-	return pmic_write(ud, BD71885_ADC_NUM_SAMPLES_BASE, (char *)&val, 3);
-}
-
-static int interval2reg(long interval)
-{
-	static const int ivals[] = { 50, 100, 1000, 10000, 100000, 1000000};
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(ivals); i++)
-		if (ivals[i] == interval)
-			return i;
-
-	return -EINVAL;
-}
-
-static int get_adc_accum_avg(struct udevice *ud, uint64_t *avg_value, uint64_t *accum)
-{
-	uint64_t *tmp2, val2;
-	char buf[4], buf2[8];
-	uint num_samples;
-	u32 *tmp;
-	int ret;
-
-	tmp = (u32 *)&buf[0];
-
-	ret = pmic_read(ud, BD71885_ADC_ACCUM_CNT_BASE, &buf[1], 3);
-	if (ret)
-		return ret;
-
-	num_samples = be32_to_cpu(*tmp);
-
-	ret = pmic_read(ud, BD71885_ADC_ACCUM_VAL_BASE, &buf2[3], 5);
-	if (ret)
-		return ret;
-
-	tmp2 = (uint64_t *)&buf2[0];
-	val2 = be64_to_cpu(*tmp2);
-
-	*accum = val2;
-	val2 += num_samples / 2;
-	do_div(val2, num_samples);
-	*avg_value = val2;
-
-	return 0;
-}
-
-static int get_avg_voltage(struct udevice *ud, uint64_t *value, uint64_t *accum)
-{
-	int ret;
-	const struct bd71885_adc_vol_src *src;
-
-	ret = __get_adc_vol_source(&src);
-	if (ret)
-		return ret;
-
-	printf("Measured voltage for source '%s'\n", src->name);
-
-	ret = get_adc_accum_avg(ud, value, accum);
-	if (ret)
-		return ret;
-
-	/* Scale */
-	*value *= src->reso_uv;
-	*accum *= src->reso_uv;
-
-	return 0;
-}
-
-static int gain_idx_resolution(unsigned int gain_idx)
-{
-	/* Unit 0.1 uV / register step */
-	static const int gain2reso[] = { 781, 391, 195, 117};
-
-	if (gain_idx < ARRAY_SIZE(gain2reso))
-		return gain2reso[gain_idx];
-
-	return -EINVAL;
-}
-
-static int get_adc_reg_reso(void)
-{
-	int ret;
-
-	ret = __get_adc_gain_idx();
-	if (ret < 0)
-		return ret;
-
-	ret = gain_idx_resolution(ret);
-	if (ret < 0)
-		return -EINVAL;
-
-	return ret;
-}
-
-static int get_avg_current(struct udevice *ud, uint64_t *value, uint64_t *accum)
-{
-	unsigned int rsens;
-	int64_t reso;
-	uint64_t curr;
-	int ret;
-
-	reso = get_adc_reg_reso();
-	if (reso < 0)
-		return reso;
-
-	ret = get_adc_accum_avg(ud, value, accum);
-	if (ret)
-		return ret;
-
-	/*
-	 * V = resolution * reg_val
-	 *
-	 * V = RI => I = V/R
-	 *
-	 * Unit of V is 0.1 uV
-	 * Unit of R is Ohm
-	 * => Unit of I is 0.1 uA
-	 */
-
-	curr = *value * reso;
-	/*
-	 * Let's increase rsense to make units uA and to reduce the time
-	 * a loop-based implementation of do_div() may take
-	 */
-	rsens = g_r_sense * 10;
-	do_div(curr, rsens);
-	*value = curr;
-
-	curr = *accum * reso;
-	do_div(curr, rsens);
-	*accum = curr;
-
-	return 0;
-}
-
-static int get_avg_power(struct udevice *ud, uint64_t *value, uint64_t *accum)
-{
-	const struct bd71885_adc_vol_src *src;
-	uint64_t power;
-	unsigned int rsens;
-	int64_t reso;
-	int ret;
-
-	ret = __get_adc_vol_source(&src);
-	if (ret)
-		return ret;
-
-	reso = get_adc_reg_reso();
-	if (reso < 0)
-		return reso;
-
-	reso *= src->reso_uv;
-
-	ret = get_adc_accum_avg(ud, value, accum);
-	if (ret)
-		return ret;
-
-	rsens = g_r_sense * 10;
-
-	/* uA * uV */
-
-	/* Can we overflow here? */
-	power = *value * reso;
-	do_div(power, rsens);
-	*value = power;
-
-	/* Can we overflow here? */
-	power = *accum * reso;
-	do_div(power, rsens);
-	*accum = power;
-
-	/* Scale? */
-	return 0;
-}
-
-static int measure_avg(struct udevice *ud, int type, long samples,
-		       long interval)
-{
-	unsigned long tmp = interval, meas_time;
-	int multiplier = 0;
-	int ret, i, j;
-	int ireg;
-
-	ireg = interval2reg(interval);
-	ret = stop_clear_adc_accum();
-	if (ret)
-		return failure(ret);
-
-	ret = pmic_clrsetbits(ud, BD71885_ADC_CTRL_2, BD71885_ADC_INTERVAL_MASK,
-			      ireg);
-	if (ret) {
-		printf("Setting interval failed\n");
-
-		return failure(ret);
-	}
-	if (ret)
-		return failure(ret);
-
-	ret = bd71885_adc_set_num_samples(ud, samples);
-	if (ret) {
-		printf("Setting sample amount failed\n");
-		return failure(ret);
-	}
-	if (ret)
-		return failure(ret);
-
-	while (tmp > 1000) {
-		tmp /= 10;
-		multiplier++;
-	}
-
-	meas_time = samples * tmp;
-
-	ret = start_adc_accum();
-	if (ret)
-		return failure(ret);
-
-	/*
-	 * Here we should catch the IRQ but for the sake of the simplicity
-	 * we just sleep/delay for the time it takes to complete measurement.
-	 *
-	 * Note, we keep the CPU busy. This should probably be avoided in
-	 * the product code using IRQs instead.
-	 */
-	if (!multiplier)
-		udelay(meas_time);
-	else
-		for (j = 1; j < multiplier; j++)
-			for (i = 0; i < 10; i++)
-				udelay(meas_time);
-
-	switch (type) {
-	uint64_t avg, accum;
-
-	case TYPE_VOLTAGE:
-		ret = get_avg_voltage(ud, &avg, &accum);
-		printf("Samples %lu, interval %lu, average voltage %llu uV, accumulated %llu uV\n",
-		       samples, interval, avg, accum);
-		break;
-	case TYPE_CURRENT:
-		ret = get_avg_current(ud, &avg, &accum);
-		printf("Samples %lu, interval %lu, average current %llu uA accumulated %llu uA\n",
-		       samples, interval, avg, accum);
-		break;
-	case TYPE_POWER:
-		ret = get_avg_power(ud, &avg, &accum);
-		printf("Samples %lu, interval %lu, average power %llu accumulated %llu\n",
-		       samples, interval, avg, accum);
-		break;
-	default:
-		printf("Unknown type\n");
-		ret = -EINVAL;
-		break;
-	}
-	if (ret)
-		return failure(ret);
-
-	return CMD_RET_SUCCESS;
-}
-
-static int do_adc_meas(struct cmd_tbl *cmdtp, int flag, int argc,
-			     char *const argv[])
-{
-	long samples, interval;
-	int type, ret;
-	char *eptr;
-
-	if (argc != 4) {
-		printf("bd71885 adc_meas [v, i, p] <num_samples> <interval>\n");
-		return CMD_RET_USAGE;
-	}
-
-	type = get_operation_type(argv[1]);
-	if (type < 0 || type == TYPE_TEMPERATURE) {
-		printf("Unknown measurement type, known types [v, i, p]\n");
-		return CMD_RET_USAGE;
-	}
-
-	if ( (type == TYPE_CURRENT || TYPE_POWER) && !g_r_sense) {
-		printf("sense-resistor not known\n");
-
-		return failure(-EINVAL);
-	}
-
-        samples = simple_strtol(argv[2], &eptr, 10);
-        if (!*argv[2] || *eptr || ((unsigned long)samples) >= BD71885_MAX_ADC_SAMPLES)
-		return CMD_RET_USAGE;
-
-        interval = simple_strtol(argv[3], &eptr, 10);
-        if (!*argv[3] || *eptr)
-		return CMD_RET_USAGE;
-
-	if (0 > interval2reg(interval))
-		return CMD_RET_USAGE;
-
-	ret = get_dev();
-	if (ret)
-		return failure(ret);
-
-	ret = __set_adc_source(type);
-	if (ret)
-		return failure(ret);
-
-
-	return measure_avg(currdev, type, samples, interval);
-}
-
 #define BD71885_ADC_ACCUM_TH_BASE	0x81
 #define BD71885_ADC_TEMP_WARN_BASE	0x86
 #define BD71885_ADC_POWER_WARN_BASE	0x88
@@ -1401,21 +1091,541 @@ static int do_adc_limit(struct cmd_tbl *cmdtp, int flag, int argc,
 	return CMD_RET_SUCCESS;
 }
 
-static int do_adc_get(struct cmd_tbl *cmdtp, int flag, int argc,
+
+#define BD71885_ADC_NUM_SAMPLES_BASE	0x6d
+#define BD71885_MAX_ADC_SAMPLES		0x3fffff
+
+static int bd71885_adc_set_num_samples(struct udevice *ud, long samples)
+{
+	int val = cpu_to_be32(samples) << 8;
+
+	return pmic_write(ud, BD71885_ADC_NUM_SAMPLES_BASE, (char *)&val, 3);
+}
+
+static int interval2reg(long interval)
+{
+	static const int ivals[] = { 50, 100, 1000, 10000, 100000, 1000000};
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ivals); i++)
+		if (ivals[i] == interval)
+			return i;
+
+	return -EINVAL;
+}
+
+static int get_adc_accum_avg(struct udevice *ud, uint64_t *avg_value, uint64_t *accum)
+{
+	uint64_t *tmp2, val2;
+	char buf[4], buf2[8];
+	uint num_samples;
+	u32 *tmp;
+	int ret;
+
+	tmp = (u32 *)&buf[0];
+
+	ret = pmic_read(ud, BD71885_ADC_ACCUM_CNT_BASE, &buf[1], 3);
+	if (ret)
+		return ret;
+
+	num_samples = be32_to_cpu(*tmp);
+
+	ret = pmic_read(ud, BD71885_ADC_ACCUM_VAL_BASE, &buf2[3], 5);
+	if (ret)
+		return ret;
+
+	tmp2 = (uint64_t *)&buf2[0];
+	val2 = be64_to_cpu(*tmp2);
+
+	*accum = val2;
+	val2 += num_samples / 2;
+	do_div(val2, num_samples);
+	*avg_value = val2;
+
+	return 0;
+}
+
+static int scale_adc_volt(struct udevice *ud, uint64_t orig, uint64_t *scaled)
+{
+	const struct bd71885_adc_vol_src *src;
+	int ret;
+
+	ret = __get_adc_vol_source(&src);
+	if (ret)
+		return ret;
+
+	/* Scale */
+	*scaled = orig * src->reso_uv;
+
+#ifdef CHECK_OVERFLOW
+	{
+		uint64_t tmp = *scaled;
+
+		do_div(tmp, src->reso_uv);
+		if (tmp != orig)
+			printf("OVERFLOW, %llu != %llu\n",
+			       (unsigned long long)tmp,
+			       (unsigned long long)orig);
+	}
+#endif
+
+	return 0;
+}
+
+static int get_avg_voltage(struct udevice *ud, uint64_t *value, uint64_t *accum)
+{
+	int ret;
+
+	ret = get_adc_accum_avg(ud, value, accum);
+	if (ret)
+		return ret;
+
+	ret = scale_adc_volt(ud, *value, value);
+	if (ret)
+		return ret;
+
+	ret = scale_adc_volt(ud, *accum, accum);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int gain_idx_resolution(unsigned int gain_idx)
+{
+	/* Unit 0.1 uV / register step */
+	static const int gain2reso[] = { 781, 391, 195, 117};
+
+	if (gain_idx < ARRAY_SIZE(gain2reso))
+		return gain2reso[gain_idx];
+
+	return -EINVAL;
+}
+
+static int get_adc_reg_reso(void)
+{
+	int ret;
+
+	ret = __get_adc_gain_idx();
+	if (ret < 0)
+		return ret;
+
+	ret = gain_idx_resolution(ret);
+	if (ret < 0)
+		return -EINVAL;
+
+	return ret;
+}
+
+static int scale_adc_curr(struct udevice *ud, uint64_t orig, uint64_t *scaled)
+{
+	unsigned reso, rsens;
+	uint64_t curr;
+	int ret;
+
+	ret = get_adc_reg_reso();
+	if (ret < 0)
+		return ret;
+
+	reso = (unsigned)ret;
+
+	/*
+	 * V = resolution * reg_val
+	 *
+	 * V = RI => I = V/R
+	 *
+	 * Unit of V is 0.1 uV
+	 * Unit of R is Ohm
+	 * => Unit of I is 0.1 uA
+	 */
+
+	curr = orig * reso;
+#ifdef CHECK_OVERFLOW
+	{
+		uint64_t tmp = curr;
+
+		do_div(tmp, reso);
+		if (tmp != curr)
+			printf("scale_adc_curr(): OVERFLOW, %llu != %llu\n",
+			       (unsigned long long)tmp,
+			       (unsigned long long)curr);
+	}
+#endif
+
+	/*
+	 * Let's increase rsense to make units uA and to reduce the time
+	 * a loop-based implementation of do_div() may take
+	 */
+	rsens = g_r_sense * 10;
+	do_div(curr, rsens);
+	*scaled = curr;
+
+	return 0;
+}
+
+static int get_avg_current(struct udevice *ud, uint64_t *value, uint64_t *accum)
+{
+	int ret;
+
+	ret = get_adc_accum_avg(ud, value, accum);
+	if (ret)
+		return ret;
+
+	ret = scale_adc_curr(ud, *value, value);
+	if (ret)
+		return ret;
+
+	ret = scale_adc_curr(ud, *accum, accum);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int scale_adc_pow(struct udevice *ud, uint64_t orig, uint64_t *scaled)
+{
+	const struct bd71885_adc_vol_src *src;
+	unsigned int rsens;
+	uint64_t reso, power;
+	int ret;
+
+	ret = __get_adc_vol_source(&src);
+	if (ret)
+		return ret;
+
+	ret = get_adc_reg_reso();
+	if (ret < 0)
+		return ret;
+
+	reso = (unsigned)ret;
+	reso *= src->reso_uv;
+
+#ifdef CHECK_OVERFLOW
+	{
+		uint64_t tmp = reso;
+
+		do_div(tmp, src->reso_uv);
+
+		if (tmp != ((unsigned)ret))
+			printf("scale_adc_pow(): reso OVERFLOW, %llu != %u\n",
+			       tmp, (unsigned)ret);
+	}
+#endif
+
+	rsens = g_r_sense * 10;
+
+	/* Can we overflow here? */
+	power = orig * reso;
+#ifdef CHECK_OVERFLOW
+	{
+		uint64_t tmp = power;
+
+		do_div(tmp, src->reso_uv);
+		do_div(tmp, ret);
+
+		if (tmp != orig)
+			printf("scale_adc_pow(): pow OVERFLOW, %llu != %llu\n",
+			       tmp, orig);
+	}
+#endif
+
+
+	do_div(power, rsens);
+	*scaled = power;
+
+	return 0;
+}
+
+
+static int get_avg_power(struct udevice *ud, uint64_t *value, uint64_t *accum)
+{
+	int ret;
+
+
+	ret = get_adc_accum_avg(ud, value, accum);
+	if (ret)
+		return ret;
+
+	ret = scale_adc_pow(ud, *value, value);
+	if (ret)
+		return ret;
+
+	ret = scale_adc_pow(ud, *accum, accum);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int measure_avg(struct udevice *ud, int type, long samples,
+		       long interval)
+{
+	unsigned long tmp = interval, meas_time;
+	int multiplier = 0;
+	int ret, i, j;
+	int ireg;
+
+	ireg = interval2reg(interval);
+	ret = stop_clear_adc_accum();
+	if (ret)
+		return failure(ret);
+
+	ret = pmic_clrsetbits(ud, BD71885_ADC_CTRL_2, BD71885_ADC_INTERVAL_MASK,
+			      ireg);
+	if (ret) {
+		printf("Setting interval failed\n");
+
+		return failure(ret);
+	}
+	if (ret)
+		return failure(ret);
+
+	ret = bd71885_adc_set_num_samples(ud, samples);
+	if (ret) {
+		printf("Setting sample amount failed\n");
+		return failure(ret);
+	}
+	if (ret)
+		return failure(ret);
+
+	while (tmp > 1000) {
+		tmp /= 10;
+		multiplier++;
+	}
+
+	meas_time = samples * tmp;
+
+	ret = start_adc_accum();
+	if (ret)
+		return failure(ret);
+
+	/*
+	 * Here we should catch the IRQ but for the sake of the simplicity
+	 * we just sleep/delay for the time it takes to complete measurement.
+	 *
+	 * Note, we keep the CPU busy. This should probably be avoided in
+	 * the product code using IRQs instead.
+	 */
+	if (!multiplier)
+		udelay(meas_time);
+	else
+		for (j = 1; j < multiplier; j++)
+			for (i = 0; i < 10; i++)
+				udelay(meas_time);
+
+	switch (type) {
+	uint64_t avg, accum;
+
+	case TYPE_VOLTAGE:
+		ret = get_avg_voltage(ud, &avg, &accum);
+		printf("Samples %lu, interval %lu, average voltage %llu uV, accumulated %llu uV\n",
+		       samples, interval, avg, accum);
+		break;
+	case TYPE_CURRENT:
+		ret = get_avg_current(ud, &avg, &accum);
+		printf("Samples %lu, interval %lu, average current %llu uA accumulated %llu uA\n",
+		       samples, interval, avg, accum);
+		break;
+	case TYPE_POWER:
+		ret = get_avg_power(ud, &avg, &accum);
+		printf("Samples %lu, interval %lu, average power %llu accumulated %llu\n",
+		       samples, interval, avg, accum);
+		break;
+	default:
+		printf("Unknown type\n");
+		ret = -EINVAL;
+		break;
+	}
+	if (ret)
+		return failure(ret);
+
+	return CMD_RET_SUCCESS;
+}
+
+static int do_adc_meas(struct cmd_tbl *cmdtp, int flag, int argc,
 			     char *const argv[])
 {
+	long samples, interval;
 	int type, ret;
+	char *eptr;
 
-	if (argc != 2)
+	printf("foo\n");
+	if (argc != 4) {
+		printf("bd71885 adc_meas [v, i, p] <num_samples> <interval>\n");
 		return CMD_RET_USAGE;
+	}
 
 	type = get_operation_type(argv[1]);
-	if (type < 0)
+	if (type < 0 || type == TYPE_TEMPERATURE) {
+		printf("Unknown measurement type, known types [v, i, p]\n");
+		return CMD_RET_USAGE;
+	}
+
+	if ( (type == TYPE_CURRENT || TYPE_POWER) && !g_r_sense) {
+		printf("sense-resistor not known\n");
+
+		return failure(-EINVAL);
+	}
+
+        samples = simple_strtol(argv[2], &eptr, 10);
+        if (!*argv[2] || *eptr || ((unsigned long)samples) >= BD71885_MAX_ADC_SAMPLES)
+		return CMD_RET_USAGE;
+
+        interval = simple_strtol(argv[3], &eptr, 10);
+        if (!*argv[3] || *eptr)
+		return CMD_RET_USAGE;
+
+	if (0 > interval2reg(interval))
 		return CMD_RET_USAGE;
 
 	ret = get_dev();
 	if (ret)
 		return failure(ret);
+
+	ret = __set_adc_source(type);
+	if (ret)
+		return failure(ret);
+
+
+	return measure_avg(currdev, type, samples, interval);
+}
+/* Convert register value to
+ * V => uV
+ * I => uA (?)
+ * P => uW (?)
+ * t => mC
+ *
+ * TODO: Check these
+ */
+static int adc_scale_smp(uint type, uint *smp)
+{
+	uint64_t tmp;
+	int ret;
+
+	switch(type)
+	{
+	case TYPE_VOLTAGE:
+		ret = scale_adc_volt(currdev, *smp, &tmp);
+		if (ret)
+			return ret;
+		#ifdef CHECK_OVERFLOW
+		if (tmp > 0xffffffff)
+			printf("adc_scale_smp(): volt OVERFLOW %llu > %u\n",
+			       tmp, 0xffffffff);
+		#endif
+		*smp = (uint)tmp;
+		break;
+	case TYPE_CURRENT:
+		ret = scale_adc_curr(currdev, *smp, &tmp);
+		if (ret)
+			return ret;
+		#ifdef CHECK_OVERFLOW
+		if (tmp > 0xffffffff)
+			printf("adc_scale_smp(): curr OVERFLOW %llu > %u\n",
+			       tmp, 0xffffffff);
+		#endif
+		*smp = (uint)tmp;
+		break;
+	case TYPE_POWER:
+		ret = scale_adc_pow(currdev, *smp, &tmp);
+		if (ret)
+			return ret;
+		#ifdef CHECK_OVERFLOW
+		if (tmp > 0xffffffff)
+			printf("adc_scale_smp(): pow OVERFLOW %llu > %u\n",
+			       tmp, 0xffffffff);
+		#endif
+		*smp = (uint)tmp;
+		break;
+	case TYPE_TEMPERATURE:
+		tmp = 351300 - 2310 * *smp / 4;
+		*smp = (uint)tmp;
+		break;
+
+	default:
+		printf("adc_scale_smp(): Unsupported type\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+#define BD71885_ADC_CUR_VAL_BASE 0x7b
+#define BD71885_ADC_VOL_VAL_BASE 0x79
+#define BD71885_ADC_TEMP_VAL_BASE 0x7f
+#define BD71885_ADC_CVT_VAL_HIMASK 0x03
+#define BD71885_ADC_POW_VAL_BASE 0x7d
+#define BD71885_ADC_POW_VAL_HIMASK 0x3f
+
+static int adc_get_single_sample(uint type, uint *sample)
+{
+	int ret;
+	char buf[2];
+	u16 *s;
+	int himask[] = { BD71885_ADC_CVT_VAL_HIMASK, BD71885_ADC_CVT_VAL_HIMASK,
+		BD71885_ADC_POW_VAL_HIMASK, BD71885_ADC_CVT_VAL_HIMASK };
+	int smp_reg[] = {
+		[TYPE_VOLTAGE] = BD71885_ADC_VOL_VAL_BASE,
+		[TYPE_CURRENT] = BD71885_ADC_CUR_VAL_BASE,
+		[TYPE_POWER] = BD71885_ADC_POW_VAL_BASE,
+		[TYPE_TEMPERATURE] = BD71885_ADC_TEMP_VAL_BASE,
+	};
+
+	if (type > TYPE_MAX) {
+		printf("Bad type\n");
+		return -EINVAL;
+	}
+
+	ret = pmic_read(currdev, smp_reg[type], &buf[0], 2);
+	if (ret < 0) {
+		printf("Read failed\n");
+		return ret;
+	}
+	buf[0] &= himask[type];
+	s = (u16 *)&buf[0];
+
+	*sample = be16_to_cpu(*s);
+
+	return adc_scale_smp(type, sample);
+}
+
+static int do_adc_get(struct cmd_tbl *cmdtp, int flag, int argc,
+			     char *const argv[])
+{
+	int type, ret;
+	uint sample;
+	const char* unit[] = {
+		[TYPE_VOLTAGE] = "uV",
+		[TYPE_CURRENT] = "uA",
+		[TYPE_POWER] = "uW",
+		[TYPE_TEMPERATURE] = "mC"
+	};
+
+	if (argc != 2) {
+		printf("expecting single argument [v,i,p,t]\n");
+		return CMD_RET_USAGE;
+	}
+
+	type = get_operation_type(argv[1]);
+	if (type < 0)
+		return CMD_RET_USAGE;
+
+	if (type == TYPE_CURRENT || type == TYPE_POWER) {
+		if (!g_r_sense) {
+			printf("Sense resistor value not known\n");
+			return failure(-EINVAL);
+		}
+	}
+
+	ret = get_dev();
+	if (ret)
+		return failure(ret);
+
+	ret = adc_get_single_sample(type, &sample);
+	if (ret)
+		return failure(ret);
+
+	printf("%u %s\n", sample, unit[type]);
 
 	return CMD_RET_SUCCESS;
 }
