@@ -409,7 +409,7 @@ static int do_set_state(struct cmd_tbl *cmdtp, int flag, int argc,
 		   char *const argv[])
 {
 	char *state;
-	int ret;
+	int ret, st;
 
 	ret = get_dev();
 	if (ret)
@@ -424,42 +424,57 @@ static int do_set_state(struct cmd_tbl *cmdtp, int flag, int argc,
 	if (ret < 0)
 		return failure(ret);
 
+	st = ret;
+
 	if (!strcmp(state, "suspend")) {
-		if (is_suspend(ret))
+		if (is_suspend(st))
 			return CMD_RET_SUCCESS;
 
 		printf("PMIC going to SUSPEND\n");
-		gpio_set(SUSPEND_GPIO_PIN, GPIO_HIGH);
+		ret = gpio_set(SUSPEND_GPIO_PIN, GPIO_HIGH);
+		if (ret)
+			printf("could not toggle SUSPEND GPIO\n");
+
 	} else if (!strcmp(state, "idle")) {
-		if (is_idle(ret))
+		if (is_idle(st))
 			return CMD_RET_SUCCESS;
 
-		if (is_run(ret) || is_suspend(ret)) {
+		if (is_run(st) || is_suspend(st)) {
 			printf("PMIC %s => IDLE\n", state2txt(ret));
 			/* Set IDLE mode */
 			ret = pmic_clrsetbits(currdev, BD71885_REG_PS_CTRL_1,
 					      BD71885_IDLE_MASK, BD71885_IDLE_MASK);
-			if (is_suspend(ret))
-				gpio_set(SUSPEND_GPIO_PIN, GPIO_LOW);
+			if (ret) {
+				printf("failed to set PMIC to IDLE\n");
+			} else if (is_suspend(st)) {
+				ret = gpio_set(SUSPEND_GPIO_PIN, GPIO_LOW);
+				if (ret)
+					printf("Failed to tooggle SUSPEND gpio\n");
+			}
 		} else {
 			printf("Don't know how to transfer '%s' => IDLE\n",
-			       state2txt(ret));
+			       state2txt(st));
 			ret = -EINVAL;
 		}
 	} else if (!strcmp(state, "run")) {
-		if (is_run(ret))
+		if (is_run(st))
 			return CMD_RET_SUCCESS;
 
-		if (is_idle(ret) || is_suspend(ret)) {
+		if (is_idle(st) || is_suspend(st)) {
 			printf("PMIC %s => RUN\n", state2txt(ret));
 			/* Clear IDLE mode */
 			ret = pmic_clrsetbits(currdev, BD71885_REG_PS_CTRL_1,
 					      BD71885_IDLE_MASK, 0);
-			if (is_suspend(ret))
-				gpio_set(SUSPEND_GPIO_PIN, GPIO_LOW);
+			if (ret) {
+				printf("failed to set PMIC to IDLE\n");
+			} else if (is_suspend(st)) {
+				ret = gpio_set(SUSPEND_GPIO_PIN, GPIO_LOW);
+				if (ret)
+					printf("Failed to tooggle SUSPEND gpio\n");
+			}
 		} else {
 			printf("Don't know how to transfer '%s' => RUN\n",
-			       state2txt(ret));
+			       state2txt(st));
 			ret = -EINVAL;
 		}
 	} else {
