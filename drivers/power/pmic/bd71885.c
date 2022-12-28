@@ -41,24 +41,6 @@ enum {
 	#define TYPE_MAX TYPE_TEMPERATURE
 };
 
-#if 0
-static int tmp_update_bits(struct udevice *ud, uint reg, uint mask, uint val)
-{
-	int ret;
-	uint8_t valb;
-
-	printf("in tmp_update_bits: ud = %p\n", ud);
-	ret = bdxxxx_read(ud, reg, &valb, 1);
-	if (ret)
-		return ret;
-
-	valb &= ~((u8)mask);
-	valb |= (u8)(val & mask);
-
-	return bdxxxx_write(ud, reg, &valb, 1);
-}
-#endif
-
 static int bd71885_bind(struct udevice *dev)
 {
 
@@ -110,10 +92,11 @@ static int failure(int ret)
 
 	return CMD_RET_FAILURE;
 }
+dm_i2c_read
 
 #define BD71885_SHORT_PRESS_MASK	(BIT(0) | BIT(1))
 #define BD71885_MID_PRESS_MASK		(BIT(2) | BIT(3))
-#define BD71885_LONG_PRESS_MASK		(BIT(4) | BIT(5)) 
+#define BD71885_LONG_PRESS_MASK		(BIT(4) | BIT(5))
 
 static int bd718xx_init_press_duration(struct udevice *ud)
 {
@@ -129,7 +112,6 @@ static int bd718xx_init_press_duration(struct udevice *ud)
 		printf("Found rohm,short-press-ms %d\n", short_press_ms);
 		for (i = 0; i < ARRAY_SIZE(short_durations); i++) {
 			if (short_durations[i] == short_press_ms) {
-				printf("writing %u to 0x%x\n", i, BD71885_REG_PBTNCONFIG);
 				ret = pmic_clrsetbits(ud, BD71885_REG_PBTNCONFIG, BD71885_SHORT_PRESS_MASK, i);
 				if (ret) {
 					printf("Writing short_press failed %d\n", ret);
@@ -147,7 +129,6 @@ static int bd718xx_init_press_duration(struct udevice *ud)
 		printf("Found rohm,mid-press-ms %d\n", mid_press_ms);
 		for (i = 0; i < ARRAY_SIZE(mid_durations); i++) {
 			if (mid_durations[i] == mid_press_ms) {
-				printf("writing %u to 0x%x\n", i << 2, BD71885_REG_PBTNCONFIG);
 				ret = pmic_clrsetbits(ud, BD71885_REG_PBTNCONFIG, BD71885_MID_PRESS_MASK, i << 2);
 				if (ret) {
 					printf("Writing mid_press failed %d\n", ret);
@@ -165,7 +146,6 @@ static int bd718xx_init_press_duration(struct udevice *ud)
 		printf("Found rohm,long-press-ms %d\n", long_press_ms);
 		for (i = 0; i < ARRAY_SIZE(long_durations); i++) {
 			if (long_durations[i] == long_press_ms) {
-				printf("writing %u to 0x%x\n", i << 4, BD71885_REG_PBTNCONFIG);
 				ret = pmic_clrsetbits(ud, BD71885_REG_PBTNCONFIG, BD71885_LONG_PRESS_MASK, i << 4);
 				if (ret) {
 					printf("Writing long_press failed %d\n", ret);
@@ -1123,6 +1103,7 @@ static int get_adc_accum_avg(struct udevice *ud, uint64_t *avg_value, uint64_t *
 	int ret;
 
 	tmp = (u32 *)&buf[0];
+	*tmp = 0;
 
 	ret = pmic_read(ud, BD71885_ADC_ACCUM_CNT_BASE, &buf[1], 3);
 	if (ret)
@@ -1130,11 +1111,20 @@ static int get_adc_accum_avg(struct udevice *ud, uint64_t *avg_value, uint64_t *
 
 	num_samples = be32_to_cpu(*tmp);
 
+	if (!num_samples) {
+		printf("No samples collected\n");
+		*avg_value = *accum = 0;
+
+		return -EINVAL;
+	}
+
+	tmp2 = (uint64_t *)&buf2[0];
+	*tmp2 = 0;
+
 	ret = pmic_read(ud, BD71885_ADC_ACCUM_VAL_BASE, &buf2[3], 5);
 	if (ret)
 		return ret;
 
-	tmp2 = (uint64_t *)&buf2[0];
 	val2 = be64_to_cpu(*tmp2);
 
 	*accum = val2;
@@ -1153,6 +1143,8 @@ static int scale_adc_volt(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 	ret = __get_adc_vol_source(&src);
 	if (ret)
 		return ret;
+
+	//printf("Scaling %llu to uV. Source %s\n", orig, src->name);
 
 	/* Scale */
 	*scaled = orig * src->reso_uv;
@@ -1449,7 +1441,6 @@ static int do_adc_meas(struct cmd_tbl *cmdtp, int flag, int argc,
 	int type, ret;
 	char *eptr;
 
-	printf("foo\n");
 	if (argc != 4) {
 		printf("bd71885 adc_meas [v, i, p] <num_samples> <interval>\n");
 		return CMD_RET_USAGE;
@@ -1585,6 +1576,7 @@ static int adc_get_single_sample(uint type, uint *sample)
 	s = (u16 *)&buf[0];
 
 	*sample = be16_to_cpu(*s);
+	//printf("Raw value from registers 0x%x\n", *sample);
 
 	return adc_scale_smp(type, sample);
 }
