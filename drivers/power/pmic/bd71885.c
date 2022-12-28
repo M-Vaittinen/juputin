@@ -92,7 +92,6 @@ static int failure(int ret)
 
 	return CMD_RET_FAILURE;
 }
-dm_i2c_read
 
 #define BD71885_SHORT_PRESS_MASK	(BIT(0) | BIT(1))
 #define BD71885_MID_PRESS_MASK		(BIT(2) | BIT(3))
