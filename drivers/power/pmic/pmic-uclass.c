@@ -5,6 +5,7 @@
  */
 
 #define LOG_CATEGORY UCLASS_PMIC
+#define DEBUG
 
 #include <common.h>
 #include <fdtdec.h>
@@ -108,6 +109,7 @@ int pmic_reg_count(struct udevice *dev)
 int pmic_read(struct udevice *dev, uint reg, uint8_t *buffer, int len)
 {
 	const struct dm_pmic_ops *ops = dev_get_driver_ops(dev);
+	int ret;
 
 	if (!buffer)
 		return -EFAULT;
@@ -115,7 +117,18 @@ int pmic_read(struct udevice *dev, uint reg, uint8_t *buffer, int len)
 	if (!ops || !ops->read)
 		return -ENOSYS;
 
-	return ops->read(dev, reg, buffer, len);
+	ret = ops->read(dev, reg, buffer, len);
+
+	if (len > 1) {
+		int i;
+
+		debug("pmic_read: reg=%x, len=%u\n", reg, len);
+		for (i = 0; i < len; i++, buffer++)
+			debug(" 0x%02x", *buffer);
+		debug("\n");
+	}
+
+	return ret;
 }
 
 int pmic_write(struct udevice *dev, uint reg, const uint8_t *buffer, int len)
@@ -128,6 +141,15 @@ int pmic_write(struct udevice *dev, uint reg, const uint8_t *buffer, int len)
 	if (!ops || !ops->write)
 		return -ENOSYS;
 
+	if (len > 1) {
+		int i;
+		uint8_t *p = buffer;
+
+		debug("pmic_write: reg=%x, len=%u\n", reg, len);
+		for (i = 0; i < len; i++, p++)
+			debug(" 0x%02x", *p);
+		debug("\n");
+	}
 	return ops->write(dev, reg, buffer, len);
 }
 
@@ -182,6 +204,7 @@ int pmic_clrsetbits(struct udevice *dev, uint reg, uint clr, uint set)
 	if (ret < 0)
 		return ret;
 
+	debug("pmic_clrsetbits: reg=%x, orig=%x new=%x\n", reg, val, (val & ~clr) | set);
 	val = (val & ~clr) | set;
 	return pmic_write(dev, reg, (uint8_t *)&val, priv->trans_len);
 }
