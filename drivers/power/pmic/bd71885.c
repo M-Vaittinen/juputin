@@ -338,8 +338,14 @@ static int do_hibernate(struct cmd_tbl *cmdtp, int flag, int argc, char *const a
 	if (ret < 0)
 		return failure(ret);
 
+	/*
+	 * My test setup is not powered by the PMIC => I can keep running the
+	 * SW even when the PMIC goes to the hibernate
+	 */
+#ifdef SHOULD_DIE_HERE
 	for (;;)
 		;
+#endif
 
 	return CMD_RET_SUCCESS;
 }
