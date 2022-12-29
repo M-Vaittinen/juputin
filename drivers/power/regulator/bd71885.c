@@ -15,6 +15,9 @@
 #include <power/pmic.h>
 #include <power/regulator.h>
 
+#define BD71885_BUCK_MODE_MASK		BIT(3)
+#define BD71885_LDO_MODE_MASK		BIT(0)
+
 struct bd71885_plat {
 	const char		*name;
 	int			id;
@@ -23,15 +26,39 @@ struct bd71885_plat {
 	u8			sel_mask;
 	int			en_reg;
 	int			vsel_reg;
+	int			mode_reg;
+	int			mode_mask;
 	bool			dvs;
+};
+
+enum {
+	BD71885_REGULATOR_MODE_NORMAL,
+	BD71885_REGULATOR_MODE_LPM,
+};
+
+static struct dm_regulator_mode bd71885_ldo_modes[] = {
+        { .id = BD71885_REGULATOR_MODE_NORMAL,
+                .register_value = 0, .name = "NORMAL" },
+        { .id = BD71885_REGULATOR_MODE_LPM,
+                .register_value = BD71885_LDO_MODE_MASK, .name = "LOWPOWER" },
+};
+
+static struct dm_regulator_mode bd71885_buck_modes[] = {
+        { .id = BD71885_REGULATOR_MODE_NORMAL,
+                .register_value = 0, .name = "NORMAL" },
+        { .id = BD71885_REGULATOR_MODE_LPM,
+                .register_value = BD71885_BUCK_MODE_MASK, .name = "LOWPOWER" },
 };
 
 #define BD_DATA(_id, _range, _en_reg) \
 { \
-	.name = __stringify(_id), .ranges = (_range), \
-	.numranges = ARRAY_SIZE(_range), .id = (_id), \
-	.en_reg = (_en_reg), \
-	.vsel_reg = (_id) < LDO1 ? (_en_reg) + 2 : (_en_reg) + 1 \
+	.name = __stringify(_id), .ranges = (_range),			\
+	.numranges = ARRAY_SIZE(_range), .id = (_id),			\
+	.en_reg = (_en_reg),						\
+	.vsel_reg = (_id) < LDO1 ? (_en_reg) + 2 : (_en_reg) + 1,	\
+	.mode_reg = (_id) < LDO1 ? (_en_reg) + 1 : (_en_reg) + 2,	\
+	.mode_mask = (_id) < LDO1 ? BD71885_BUCK_MODE_MASK :		\
+				    BD71885_LDO_MODE_MASK,		\
 }
 
 static struct regulator_vrange buck123458_vranges[] = {
@@ -101,35 +128,125 @@ static struct bd71885_plat bd71885_reg_data[] = {
 	BD_DATA(LDO4, ldo_hi_vranges, BD71885_LDO4_ON),
 };
 
-static int bd71885_get_value(struct udevice *dev);
-
-static int bd71885_get_enable(struct udevice *dev)
+static const struct dm_regulator_mode
+	*bd71885_find_mode_by_id(int id,
+				const struct dm_regulator_mode *modes,
+				uint mode_count)
 {
-	int val;
+	for (; mode_count; mode_count--) {
+		if (modes->id == id)
+			return modes;
+		modes++;
+	}
+	return NULL;
+}
+
+static int bd71885_get_mode(struct udevice *dev)
+{
 	struct bd71885_plat *plat = dev_get_plat(dev);
+	int val;
+
+	printf("Reading mode. plat = %p dev = %p\n", plat, dev);
+	val = pmic_reg_read(dev->parent, plat->mode_reg);
+	if (val < 0)
+		return val;
+
+	printf("Returning mode %d\n", (val & plat->mode_mask) ?
+		BD71885_REGULATOR_MODE_LPM : BD71885_REGULATOR_MODE_NORMAL);
+	if (val & plat->mode_mask)
+		return BD71885_REGULATOR_MODE_LPM;
+
+	return BD71885_REGULATOR_MODE_NORMAL;
+}
+
+static int __regulator_set_mode(struct udevice *dev, int mode_id,
+				struct dm_regulator_mode *modes, int num_modes)
+{
+	struct bd71885_plat *plat = dev_get_plat(dev);
+	const struct dm_regulator_mode *mode;
+
+	mode = bd71885_find_mode_by_id(mode_id, modes, num_modes);
+	if (!mode)
+		return -EINVAL;
+
+	return pmic_clrsetbits(dev->parent, plat->mode_reg,
+			       plat->mode_mask, mode->register_value);
+}
+
+static int ldo_set_mode(struct udevice *dev, int mode_id)
+{
+	return __regulator_set_mode(dev, mode_id, &bd71885_ldo_modes[0],
+				    ARRAY_SIZE(bd71885_ldo_modes));
+}
+
+static int buck_set_mode(struct udevice *dev, int mode_id)
+{
+	return __regulator_set_mode(dev, mode_id, &bd71885_buck_modes[0],
+				    ARRAY_SIZE(bd71885_buck_modes));
+}
+
+static int __bd71885_get_enable(struct udevice *dev, int mask)
+{
+	struct bd71885_plat *plat = dev_get_plat(dev);
+	int val;
 
 	val = pmic_reg_read(dev->parent, plat->en_reg);
 	if (val < 0)
 		return val;
 
-	return !!(val & BD71885_MASK_RUN_ON);
+	return !!(val & mask);
 }
 
-static int bd71885_set_enable(struct udevice *dev, bool enable)
+static int bd71885_get_enable(struct udevice *dev)
+{
+	return __bd71885_get_enable(dev, BD71885_MASK_RUN_ON);
+}
+
+static int bd71885_get_suspend_enable(struct udevice *dev)
+{
+	return __bd71885_get_enable(dev, BD71885_MASK_SUSP_ON);
+}
+
+static int bd71885_get_idle_enable(struct udevice *dev) __attribute__((unused));
+static int bd71885_get_idle_enable(struct udevice *dev)
+{
+	return __bd71885_get_enable(dev, BD71885_MASK_IDLE_ON);
+}
+
+static int __bd71885_set_enable(struct udevice *dev, bool enable, int mask)
 {
 	struct bd71885_plat *plat = dev_get_plat(dev);
 	int val;
 
 	if (enable)
-		val = BD71885_MASK_RUN_ON;
+		val = mask;
 	else
 		val = 0;
 
-	return pmic_clrsetbits(dev->parent, plat->en_reg, BD71885_MASK_RUN_ON,
-			       val);
+	return pmic_clrsetbits(dev->parent, plat->en_reg, mask, val);
 }
 
-static int bd71885_get_value(struct udevice *dev)
+static int bd71885_set_enable(struct udevice *dev, bool enable)
+{
+	return __bd71885_set_enable(dev, enable, BD71885_MASK_RUN_ON);
+}
+
+static int bd71885_set_suspend_enable(struct udevice *dev, bool enable)
+{
+	return __bd71885_set_enable(dev, enable, BD71885_MASK_SUSP_ON);
+}
+
+static int bd71885_set_idle_enable(struct udevice *dev,
+				   bool enable) __attribute__((unused));
+static int bd71885_set_idle_enable(struct udevice *dev, bool enable)
+{
+	return __bd71885_set_enable(dev, enable, BD71885_MASK_IDLE_ON);
+}
+
+#define BD71885_BUCK_SUSPEND_VSEL_OFFSET 2
+#define BD71885_BUCK_IDLE_VSEL_OFFSET 1
+
+static int __bd71885_get_value(struct udevice *dev, int vsel)
 {
 	struct bd71885_plat *plat = dev_get_plat(dev);
 	struct regulator_vrange *r;
@@ -161,7 +278,7 @@ static int bd71885_get_value(struct udevice *dev)
 	r = &plat->ranges[0];
 
 get:
-	sel = pmic_reg_read(dev->parent, plat->vsel_reg);
+	sel = pmic_reg_read(dev->parent, vsel);
 	if (sel < 0) {
 		printf("sel reading failed\n");
 
@@ -177,9 +294,33 @@ get:
 	return -EINVAL;
 }
 
+static int bd71885_get_suspend_value(struct udevice *dev)
+{
+	struct bd71885_plat *plat = dev_get_plat(dev);
+
+	return __bd71885_get_value(dev, plat->vsel_reg +
+                                   BD71885_BUCK_SUSPEND_VSEL_OFFSET);
+}
+
+static int bd71885_get_value(struct udevice *dev)
+{
+	struct bd71885_plat *plat = dev_get_plat(dev);
+
+	return __bd71885_get_value(dev, plat->vsel_reg);
+}
+
+static int bd71885_get_idle_value(struct udevice *dev) __attribute__((unused));
+static int bd71885_get_idle_value(struct udevice *dev)
+{
+	struct bd71885_plat *plat = dev_get_plat(dev);
+
+	return __bd71885_get_value(dev, plat->vsel_reg +
+				   BD71885_BUCK_IDLE_VSEL_OFFSET);
+}
+
 #define BUCK5_LOW_MAX 1000000
 
-static int bd71885_set_value(struct udevice *dev, int uvolt)
+static int __bd71885_set_value(struct udevice *dev, int uvolt, int vsel)
 {
 	struct bd71885_plat *plat = dev_get_plat(dev);
 	struct regulator_vrange *r;
@@ -222,10 +363,11 @@ try_set:
 	if (!found) {
 		/*
 		 * If no suitable voltage was found, check whether we are BUCK5.
-		 * And if we are, then we will check whether we can find
-		 * suitable value from the other range.
+		 * And if we are and if we are changing RUN voltage, then we
+		 * will check whether we can find suitable value from the other
+		 * range.
 		 */
-		if (retry != 1)
+		if (retry != 1 || plat->id != BUCK5)
 			return -EINVAL;
 		else
 			retry++;
@@ -259,10 +401,39 @@ try_set:
 				      BD71885_BUCK5_LORANGE, buck5_range);
 	}
 
-	return pmic_reg_write(dev->parent, plat->vsel_reg, sel);
+	return pmic_reg_write(dev->parent, vsel, sel);
+
 }
 
+static int bd71885_set_suspend_value(struct udevice *dev, int uvolt)
+{
+	struct bd71885_plat *plat = dev_get_plat(dev);
 
+	return __bd71885_set_value(dev, uvolt, plat->vsel_reg +
+				   BD71885_BUCK_SUSPEND_VSEL_OFFSET);
+}
+
+static int bd71885_set_idle_value(struct udevice *dev,
+				  int uvolt) __attribute__((unused));
+static int bd71885_set_idle_value(struct udevice *dev, int uvolt)
+{
+	struct bd71885_plat *plat = dev_get_plat(dev);
+
+	if (plat->id > BUCK8) {
+		printf("setting SUSPEND voltage for LDOs not supported\n");
+		return -EINVAL;
+	}
+
+	return __bd71885_set_value(dev, uvolt, plat->vsel_reg +
+				   BD71885_BUCK_IDLE_VSEL_OFFSET);
+}
+
+static int bd71885_set_value(struct udevice *dev, int uvolt)
+{
+	struct bd71885_plat *plat = dev_get_plat(dev);
+
+	return __bd71885_set_value(dev, uvolt, plat->vsel_reg);
+}
 
 static int bd71885_regulator_probe(struct udevice *dev)
 {
@@ -295,6 +466,15 @@ static int bd71885_regulator_probe(struct udevice *dev)
 			*plat = bd71885_reg_data[i];
 
 			uc_pdata = dev_get_uclass_plat(dev);
+			if (bd71885_reg_data[i].id < LDO1) {
+				uc_pdata->mode = &bd71885_buck_modes[0];
+				uc_pdata->mode_count = ARRAY_SIZE(bd71885_buck_modes);
+				printf("Set mode ptr for buck id %d\n", bd71885_reg_data[i].id);
+			} else {
+				uc_pdata->mode = &bd71885_ldo_modes[0];
+				uc_pdata->mode_count = ARRAY_SIZE(bd71885_ldo_modes);
+				printf("Set mode ptr for ldo id %d\n", bd71885_reg_data[i].id);
+			}
 			return bd71885_set_enable(dev, !!(uc_pdata->boot_on ||
 						  uc_pdata->always_on));
 		}
@@ -305,17 +485,42 @@ static int bd71885_regulator_probe(struct udevice *dev)
 	return -ENOENT;
 }
 
-static const struct dm_regulator_ops bd71885_regulator_ops = {
-	.get_value  = bd71885_get_value,
-	.set_value  = bd71885_set_value,
-	.get_enable = bd71885_get_enable,
-	.set_enable = bd71885_set_enable,
+static const struct dm_regulator_ops bd71885_buck_ops = {
+	.get_value		= bd71885_get_value,
+	.set_value		= bd71885_set_value,
+	.get_suspend_value	= bd71885_get_suspend_value,
+	.set_suspend_value	= bd71885_set_suspend_value,
+	.get_enable		= bd71885_get_enable,
+	.set_enable		= bd71885_set_enable,
+	.get_suspend_enable	= bd71885_get_suspend_enable,
+	.set_suspend_enable	= bd71885_set_suspend_enable,
+	.get_mode		= bd71885_get_mode,
+	.set_mode		= buck_set_mode,
 };
 
-U_BOOT_DRIVER(bd71885_regulator) = {
-	.name = BD71885_REGULATOR_DRIVER,
+static const struct dm_regulator_ops bd71885_ldo_ops = {
+	.get_value		= bd71885_get_value,
+	.set_value		= bd71885_set_value,
+	.get_enable		= bd71885_get_enable,
+	.set_enable		= bd71885_set_enable,
+	.get_suspend_enable	= bd71885_get_suspend_enable,
+	.set_suspend_enable	= bd71885_set_suspend_enable,
+	.get_mode		= bd71885_get_mode,
+	.set_mode		= ldo_set_mode,
+};
+
+U_BOOT_DRIVER(bd71885_buck) = {
+	.name = BD71885_BUCK_DRIVER,
 	.id = UCLASS_REGULATOR,
-	.ops = &bd71885_regulator_ops,
+	.ops = &bd71885_buck_ops,
+	.probe = bd71885_regulator_probe,
+	.plat_auto = sizeof(struct bd71885_plat),
+};
+
+U_BOOT_DRIVER(bd71885_ldo) = {
+	.name = BD71885_LDO_DRIVER,
+	.id = UCLASS_REGULATOR,
+	.ops = &bd71885_ldo_ops,
 	.probe = bd71885_regulator_probe,
 	.plat_auto = sizeof(struct bd71885_plat),
 };
