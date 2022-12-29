@@ -27,9 +27,9 @@ static uint g_r_sense;
 
 static const struct pmic_child_info pmic_children_info[] = {
 	/* buck */
-	{ .prefix = "b", .driver = BD71885_REGULATOR_DRIVER},
+	{ .prefix = "b", .driver = BD71885_BUCK_DRIVER},
 	/* ldo */
-	{ .prefix = "l", .driver = BD71885_REGULATOR_DRIVER},
+	{ .prefix = "l", .driver = BD71885_LDO_DRIVER},
 	{ },
 };
 
