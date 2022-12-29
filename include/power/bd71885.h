@@ -21,7 +21,8 @@
  * #define OTP_LDO3_HIRANGE
  */
 
-#define BD71885_REGULATOR_DRIVER "bd71885_regulator"
+#define BD71885_BUCK_DRIVER "bd71885_buck"
+#define BD71885_LDO_DRIVER "bd71885_ldo"
 #define BD71885_PROD_ID_VAL 0x01
 #define BD71885_VENDOR_VAL 0x10
 
