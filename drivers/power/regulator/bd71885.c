@@ -54,12 +54,12 @@ static struct regulator_vrange buck67_vranges[] = {
  * as well.
  */
 static struct regulator_vrange ldo_lo_vranges[] = {
-	BD_RANGE(1560000, 10000, 0, 0x78),
+	BD_RANGE(600000, 10000, 0, 0x78),
 	BD_RANGE(1800000, 0, 0x79, 0xff),
 };
 
 static struct regulator_vrange ldo_hi_vranges[] = {
-	BD_RANGE(1710000, 10000, 0, 0xff),
+	BD_RANGE(750000, 10000, 0, 0xff),
 };
 
 enum {
