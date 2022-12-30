@@ -26,30 +26,30 @@
 		regulators {
 			BUCK1 {
 				regulator-name = "BUCK1";
-				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1300000>;
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1350000>;
 /*				regulator-boot-on; */
 /*				regulator-always-on; */
 				regulator-ramp-delay = <1250>;
 			};
 			BUCK2 {
 				regulator-name = "BUCK2";
-				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1300000>;
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1350000>;
 				regulator-always-on;
 				regulator-ramp-delay = <1250>;
 			};
 			BUCK3 {
 				regulator-name = "BUCK3";
-				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1300000>;
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1350000>;
 		//		regulator-boot-on;
 				rohm,no-regulator-enable-control;
 			};
 			BUCK4 {
 				regulator-name = "BUCK4";
-				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1300000>;
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1850000>;
 				regulator-boot-on;
 			};
 		};
@@ -69,7 +69,7 @@
 		regulators {
 			buck1: BUCK1 {
 				regulator-name = "buck1";
-				regulator-min-microvolt = <700000>;
+				regulator-min-microvolt = <500000>;
 				regulator-max-microvolt = <1300000>;
 /*				regulator-boot-on; */
 /*				regulator-always-on; */
@@ -77,55 +77,55 @@
 			};
 			buck2: BUCK2 {
 				regulator-name = "buck2";
-				regulator-min-microvolt = <700000>;
+				regulator-min-microvolt = <500000>;
 				regulator-max-microvolt = <1300000>;
 				regulator-always-on;
 				regulator-ramp-delay = <1250>;
 			};
 			buck3: BUCK3 {
 				regulator-name = "buck3";
-				regulator-min-microvolt = <700000>;
+				regulator-min-microvolt = <500000>;
 				regulator-max-microvolt = <1300000>;
 		//		regulator-boot-on;
 				rohm,no-regulator-enable-control;
 			};
 			buck4: BUCK4 {
 				regulator-name = "buck4";
-				regulator-min-microvolt = <700000>;
+				regulator-min-microvolt = <500000>;
 				regulator-max-microvolt = <1300000>;
 				regulator-boot-on;
 			};
 			buck5: BUCK5 {
 				regulator-name = "buck5";
-				regulator-min-microvolt = <675000>;
-				regulator-max-microvolt = <1350000>;
+				/* min-max here includes both HI and LO ranges */
+				regulator-min-microvolt = <300000>;
+				regulator-max-microvolt = <1300000>;
 				regulator-boot-on;
 			};
 
 			BUCK6: BUCK6 {
 				regulator-name = "buck6";
-				regulator-min-microvolt = <3000000>;
-				regulator-max-microvolt = <3300000>;
+				regulator-min-microvolt = <1500000>;
+				regulator-max-microvolt = <3500000>;
 				regulator-boot-on;
 			};
 
 			buck7: BUCK7 {
 				regulator-name = "buck7";
-				regulator-min-microvolt = <1605000>;
-				regulator-max-microvolt = <1995000>;
+				regulator-min-microvolt = <1500000>;
+				regulator-max-microvolt = <3500000>;
 				regulator-boot-on;
 			};
 
 			buck8: BUCK8 {
 				regulator-name = "buck8";
-				regulator-min-microvolt = <800000>;
-				regulator-max-microvolt = <1400000>;
+				regulator-min-microvolt = <500000>;
+				regulator-max-microvolt = <1300000>;
 			};
 
-/* LDO1nd LDO2 are enabled by HW when PMIC turns from READY to SNVS state */
 			ldo1: LDO1 {
 				regulator-name = "ldo1";
-				regulator-min-microvolt = <1600000>;
+				regulator-min-microvolt = <600000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-boot-on;
 /*				regulator-always-on; */
@@ -133,15 +133,15 @@
 
 			ldo2: LDO2 {
 				regulator-name = "ldo2";
-				regulator-min-microvolt = <800000>;
-				regulator-max-microvolt = <900000>;
+				regulator-min-microvolt = <750000>;
+				regulator-max-microvolt = <3300000>;
 				regulator-boot-on;
 /*				regulator-always-on; */
 			};
 
 			ldo3: LDO3 {
 				regulator-name = "ldo3";
-				regulator-min-microvolt = <1800000>;
+				regulator-min-microvolt = <600000>;
 				regulator-max-microvolt = <3300000>;
 /*				regulator-boot-on; */
 /*				regulator-always-on; */
@@ -149,8 +149,8 @@
 
 			ldo4: LDO4 {
 				regulator-name = "ldo4";
-				regulator-min-microvolt = <900000>;
-				regulator-max-microvolt = <1800000>;
+				regulator-min-microvolt = <750000>;
+				regulator-max-microvolt = <3300000>;
 /*				regulator-boot-on; */
 /*				regulator-always-on; */
 			};
