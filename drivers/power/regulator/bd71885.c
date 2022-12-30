@@ -18,6 +18,13 @@
 #define BD71885_BUCK_MODE_MASK		BIT(3)
 #define BD71885_LDO_MODE_MASK		BIT(0)
 
+/*
+TODO: If this goes to upstream we should allow setting this via DT. Board specific compilation scales well
+only when there is one very specific product where the SW is used.
+#define OTP_LDO1_LORANGE
+#define OTP_LDO3_HIRANGE
+*/
+
 struct bd71885_plat {
 	const char		*name;
 	int			id;
@@ -72,13 +79,13 @@ static struct regulator_vrange buck5_lo_vranges[] = {
 };
 
 static struct regulator_vrange buck67_vranges[] = {
-	BD_RANGE(2140000, 10000, 0, 0xc8),
+	BD_RANGE(1500000, 10000, 0, 0xc8),
 	BD_RANGE(3500000, 0, 0xc9, 0xff),
 };
 
 /*
- * LDO1 and LDO3 default to the low range. There is an OTP option for hi range
- * as well.
+ * LDO1 default to hi-range. LDO3 default to the low range.
+ * There is an OTP option for changing this.
  */
 static struct regulator_vrange ldo_lo_vranges[] = {
 	BD_RANGE(600000, 10000, 0, 0x78),
@@ -114,10 +121,10 @@ static struct bd71885_plat bd71885_reg_data[] = {
 	BD_DATA(BUCK6, buck67_vranges, BD71885_BUCK6_ON),
 	BD_DATA(BUCK7, buck67_vranges, BD71885_BUCK7_ON),
 	BD_DATA(BUCK8, buck123458_vranges, BD71885_BUCK8_ON),
-#ifndef OTP_LDO1_HIRANGE
-	BD_DATA(LDO1, ldo_lo_vranges, BD71885_LDO1_ON),
-#else
+#ifndef OTP_LDO1_LORANGE
 	BD_DATA(LDO1, ldo_hi_vranges, BD71885_LDO1_ON),
+#else
+	BD_DATA(LDO1, ldo_lo_vranges, BD71885_LDO1_ON),
 #endif
 	BD_DATA(LDO2, ldo_hi_vranges, BD71885_LDO2_ON),
 #ifndef OTP_LDO3_HIRANGE
