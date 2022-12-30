@@ -257,7 +257,6 @@ static int print_faulty_vr(void)
  */
 static int get_dev(void)
 {
-//	char *name = "bd71885_pmic";
 	char *name = "pmic@4b";
 	int ret;
 
@@ -1506,8 +1505,8 @@ static int do_adc_meas(struct cmd_tbl *cmdtp, int flag, int argc,
 }
 /* Convert register value to
  * V => uV
- * I => uA (?)
- * P => uW (?)
+ * I => uA
+ * P => uW
  * t => mC
  *
  * TODO: Check these
