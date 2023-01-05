@@ -846,21 +846,21 @@ struct bd71885_adc_vol_src {
 #define BD71885_ADC_VOL(_name, _vol) { .name = (_name), .reso_uv = (_vol) }
 
 static const struct bd71885_adc_vol_src adc_vol_sources[] = {
-	BD71885_ADC_VOL("vsys", 5860000),
-	BD71885_ADC_VOL("fb1", 5860000),
-	BD71885_ADC_VOL("fb2", 5860000),
-	BD71885_ADC_VOL("fb3", 5860000),
-	BD71885_ADC_VOL("fb4", 5860000),
-	BD71885_ADC_VOL("fb5", 5860000),
-	BD71885_ADC_VOL("fb6", 5860000),
-	BD71885_ADC_VOL("fb7", 5860000),
-	BD71885_ADC_VOL("fb8", 5860000),
-	BD71885_ADC_VOL("ldo1", 5860000),
-	BD71885_ADC_VOL("ldo2", 5860000),
-	BD71885_ADC_VOL("ldo3", 5860000),
-	BD71885_ADC_VOL("ldo4", 5860000),
-	BD71885_ADC_VOL("adin_p", 5860000),
-	BD71885_ADC_VOL("gpio1", 1170000),
+	BD71885_ADC_VOL("vsys", 5860),
+	BD71885_ADC_VOL("fb1", 5860),
+	BD71885_ADC_VOL("fb2", 5860),
+	BD71885_ADC_VOL("fb3", 5860),
+	BD71885_ADC_VOL("fb4", 5860),
+	BD71885_ADC_VOL("fb5", 5860),
+	BD71885_ADC_VOL("fb6", 5860),
+	BD71885_ADC_VOL("fb7", 5860),
+	BD71885_ADC_VOL("fb8", 5860),
+	BD71885_ADC_VOL("ldo1", 5860),
+	BD71885_ADC_VOL("ldo2", 5860),
+	BD71885_ADC_VOL("ldo3", 5860),
+	BD71885_ADC_VOL("ldo4", 5860),
+	BD71885_ADC_VOL("adin_p", 5860),
+	BD71885_ADC_VOL("gpio1", 1170),
 };
 
 static int __get_adc_vol_source(const struct bd71885_adc_vol_src **src)
