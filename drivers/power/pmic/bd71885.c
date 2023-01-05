@@ -568,6 +568,8 @@ static int set_adc_accum(bool enable, bool clear)
 	else
 		val |= BD71885_ADC_ACCUM_STOP;
 
+	//printf("accum en=%d, clear=%d, write reg 0x%x val 0x%x\n", enable, clear,
+	//       BD71885_ADC_ACCUM_KICK, val);
 	ret = pmic_reg_write(currdev, BD71885_ADC_ACCUM_KICK, val);
 	if (ret)
 		printf("Failed to %s ADC accumulator\n",
@@ -722,6 +724,9 @@ static int accum_stopped_config_helper(struct udevice *ud, uint reg, uint mask,
 		if (ret)
 			return failure(ret);
 	}
+
+	//printf("Updating accum register 0x%x, mask 0x%x, val 0x%x\n",
+	//       reg, mask, val);
 
 	ret = pmic_clrsetbits(ud, reg, mask, val);
 	if (ret) {
@@ -918,6 +923,10 @@ static int do_adc_vol_source(struct cmd_tbl *cmdtp, int flag, int argc,
 	if (argc != 2)
 		return CMD_RET_USAGE;
 
+	/* This is actually not compulsory. We could also allow setting the
+	 * voltage source before setting the type to voltage. I did this check
+	 * purely to help pointing out misconfiguration.
+	 */
 	if (TYPE_VOLTAGE !=  __get_adc_source()) {
 		printf("ADC ACCUM not set to accumulate voltage\n");
 		get_adc_source();
@@ -1096,7 +1105,9 @@ static int do_adc_limit(struct cmd_tbl *cmdtp, int flag, int argc,
 
 static int bd71885_adc_set_num_samples(struct udevice *ud, long samples)
 {
-	int val = cpu_to_be32(samples) << 8;
+	u32 val = cpu_to_be32((u32)samples << 8);
+
+	printf("Setting ADC num samples to %u\n", samples);
 
 	return pmic_write(ud, BD71885_ADC_NUM_SAMPLES_BASE, (char *)&val, 3);
 }
@@ -1266,6 +1277,18 @@ static int scale_adc_curr(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 	/*
 	 * Let's increase rsense to make units uA and to reduce the time
 	 * a loop-based implementation of do_div() may take
+	 *
+	 * TODO:
+	 * This may be absolutely a terrible thing to do. The smallest voltage
+	 * values may be aroun 11.7 uV and Rsense around 10 Mohm, meaning that
+	 * the equation here comes to
+	 * form:
+	 *
+	 * 117 / 10 * 10000000
+	 *
+	 * So, this scaling needs to be fitted according to the expected values,
+	 * or then a compariosn logig for the relative sizes of curr and
+	 * Rsens need to be used to select the optimal scale.
 	 */
 	rsens = g_r_sense * 10;
 	do_div(curr, rsens);
