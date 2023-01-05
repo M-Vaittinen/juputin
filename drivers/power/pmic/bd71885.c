@@ -1256,10 +1256,10 @@ static int scale_adc_curr(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 		uint64_t tmp = curr;
 
 		do_div(tmp, reso);
-		if (tmp != curr)
+		if (tmp != orig)
 			printf("scale_adc_curr(): OVERFLOW, %llu != %llu\n",
 			       (unsigned long long)tmp,
-			       (unsigned long long)curr);
+			       (unsigned long long)orig);
 	}
 #endif
 
