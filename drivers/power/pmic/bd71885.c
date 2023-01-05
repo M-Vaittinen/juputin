@@ -1107,7 +1107,7 @@ static int bd71885_adc_set_num_samples(struct udevice *ud, long samples)
 {
 	u32 val = cpu_to_be32((u32)samples << 8);
 
-	printf("Setting ADC num samples to %u\n", samples);
+	printf("Setting ADC num samples to %lu\n", samples);
 
 	return pmic_write(ud, BD71885_ADC_NUM_SAMPLES_BASE, (char *)&val, 3);
 }
@@ -1275,22 +1275,19 @@ static int scale_adc_curr(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 #endif
 
 	/*
-	 * Let's increase rsense to make units uA and to reduce the time
-	 * a loop-based implementation of do_div() may take
+	 * Let's make the units to 0.01 nA.
+	 * This may be a bad idea as if Rsense is a lot smaller than the curr,
+	 * then a loop-based mplementation of do_div() may take plenty of time.
+	 *
+	 * OTOH, sometimes the current may be less or close to 0.01 nA which
+	 * will cause flooring or significant loss of accuracy.
 	 *
 	 * TODO:
-	 * This may be absolutely a terrible thing to do. The smallest voltage
-	 * values may be aroun 11.7 uV and Rsense around 10 Mohm, meaning that
-	 * the equation here comes to
-	 * form:
-	 *
-	 * 117 / 10 * 10000000
-	 *
 	 * So, this scaling needs to be fitted according to the expected values,
 	 * or then a compariosn logig for the relative sizes of curr and
 	 * Rsens need to be used to select the optimal scale.
 	 */
-	rsens = g_r_sense * 10;
+	rsens = g_r_sense / 10000;
 	do_div(curr, rsens);
 	*scaled = curr;
 
@@ -1395,8 +1392,9 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 		       long interval)
 {
 	unsigned long tmp = interval, meas_time;
+	static const int delay_arr[] = { 1, 10, 100, 1000, 10000, 100000, 1000000 };
 	int multiplier = 0;
-	int ret, i, j;
+	int ret, i;
 	int ireg;
 
 	ireg = interval2reg(interval);
@@ -1427,16 +1425,21 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 		multiplier++;
 	}
 
-	meas_time = samples * tmp;
+	if (multiplier >= ARRAY_SIZE(delay_arr)) {
+		printf("interval %lu too big? Max 1 000 000\n", interval);
+		return -EINVAL;
+	}
 
+	meas_time = samples * tmp;
+	#ifdef CHECK_OVERFLOW
+	if (meas_time / tmp != samples)
+		printf("OVERFLOW: measure_avg() measurement time overflow SHOULD NOT HAPPEN - TMP SCALED DOWN, %lu != %lu\n",
+		       meas_time / tmp, samples);
+	#endif
 	ret = start_adc_accum();
 	if (ret)
 		return failure(ret);
 
-	printf("delaying for %lu usecs for %u times (%llu usec?)\n",
-	       meas_time, 10 * (multiplier + 1), multiplier ? 10LLU *
-		((unsigned long long)meas_time) *  ((unsigned long long)multiplier) :
-		(unsigned long long) meas_time);
 	/*
 	 * Here we should catch the IRQ but for the sake of the simplicity
 	 * we just sleep/delay for the time it takes to complete measurement.
@@ -1444,12 +1447,8 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 	 * Note, we keep the CPU busy. This should probably be avoided in
 	 * the product code using IRQs instead.
 	 */
-	if (!multiplier)
+	for (i = 0; i < delay_arr[multiplier]; i++)
 		udelay(meas_time);
-	else
-		for (j = 0; j < multiplier; j++)
-			for (i = 0; i < 10; i++)
-				udelay(meas_time);
 
 	switch (type) {
 	uint64_t avg, accum;
@@ -1461,7 +1460,7 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 		break;
 	case TYPE_CURRENT:
 		ret = get_avg_current(ud, &avg, &accum);
-		printf("Samples %lu, interval %lu, average current %llu uA accumulated %llu uA\n",
+		printf("Samples %lu, interval %lu, average current %llu  [0.01 nA] accumulated %llu [0.01 nA]\n",
 		       samples, interval, avg, accum);
 		break;
 	case TYPE_POWER:
