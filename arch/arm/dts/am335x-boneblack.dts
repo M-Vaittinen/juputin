@@ -64,8 +64,8 @@
 		rohm,short-press-ms = <30>;
 		rohm,mid-press-ms = <1000>;
 		rohm,long-press-ms = <5000>;
-		/* Try 10M Rsense */
-		rohm,sense-resistor-ohms = <10000000>;
+		/* Try 10 milli-ohm Rsense */
+		rohm,sense-resistor-mohms = <10>;
 
 		regulators {
 			buck1: BUCK1 {
