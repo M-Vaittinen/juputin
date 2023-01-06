@@ -156,9 +156,9 @@ static int bd718xx_init_press_duration(struct udevice *ud)
 		if (i == ARRAY_SIZE(long_durations))
 			printf("Bad long-press duration %d\n", long_press_ms);
 	}
-	ret =  dev_read_u32u(ud, "rohm,sense-resistor-ohms", &g_r_sense);
+	ret =  dev_read_u32u(ud, "rohm,sense-resistor-mohms", &g_r_sense);
 	if (!ret)
-		printf("R_sense set to %u Ohms\n", g_r_sense);
+		printf("R_sense set to %u milli ohms\n", g_r_sense);
 	else
 		printf("No sense resistor value found\n");
 
@@ -1239,6 +1239,7 @@ static int get_adc_reg_reso(void)
 	return ret;
 }
 
+/* Scales to milli Amperes */
 static int scale_adc_curr(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 {
 	unsigned reso, rsens;
@@ -1250,16 +1251,6 @@ static int scale_adc_curr(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 		return ret;
 
 	reso = (unsigned)ret;
-
-	/*
-	 * V = resolution * reg_val
-	 *
-	 * V = RI => I = V/R
-	 *
-	 * Unit of V is 0.1 uV
-	 * Unit of R is Ohm
-	 * => Unit of I is 0.1 uA
-	 */
 
 	curr = orig * reso;
 #ifdef CHECK_OVERFLOW
@@ -1275,19 +1266,31 @@ static int scale_adc_curr(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 #endif
 
 	/*
-	 * Let's make the units to 0.01 nA.
-	 * This may be a bad idea as if Rsense is a lot smaller than the curr,
-	 * then a loop-based mplementation of do_div() may take plenty of time.
+	 * V = resolution * reg_val
 	 *
-	 * OTOH, sometimes the current may be less or close to 0.01 nA which
-	 * will cause flooring or significant loss of accuracy.
+	 * V = RI => I = V/R
+	 *
+	 * Unit of V is 0.1 uV
+	 * Unit of R is milli ohm
+	 * => Unit of I is 100 uA
+	 *
+	 * For now I just assume Rsense
+	 * will be magnitude of 10 milli-ohm and scale the computation to mA
+	 * by multiplying the Rsense with 10 before the division.
+	 *
+	 * This may be a bad idea as:
+	 * a) If Rsense is a lot smaller than the curr, then a loop-based
+	 * implementation of do_div() may take plenty of time.
+	 *
+	 * b) When the current value is close to the Rsense we may get
+	 * flooring or significant loss of accuracy.
 	 *
 	 * TODO:
 	 * So, this scaling needs to be fitted according to the expected values,
-	 * or then a compariosn logig for the relative sizes of curr and
-	 * Rsens need to be used to select the optimal scale.
+	 * or a compariosn logig for the relative sizes of curr and Rsens need
+	 * to be used to select the optimal scale.
 	 */
-	rsens = g_r_sense / 10000;
+	rsens = g_r_sense * 10;
 	do_div(curr, rsens);
 	*scaled = curr;
 
@@ -1320,6 +1323,17 @@ static int scale_adc_pow(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 	uint64_t reso, power;
 	int ret;
 
+/*
+ *  And Power is calculated by the following formula: ACC_POW_VAL =
+ *  (ADC_VOL_VAL[9:0] * ADC_CUR_VAL[9:0]) / 64
+ *
+ *  Voltage resolution is in uV
+ *
+ *  Gain correction is in units of 0.1uV. Rsense is in units of milli ohm.
+ *  By multiplying Rsense with 10 the current resolution is in mA.
+ *  According to the formula above:
+ *  => unit of power is nW / 64. 
+ */
 	ret = __get_adc_vol_source(&src);
 	if (ret)
 		return ret;
@@ -1346,20 +1360,20 @@ static int scale_adc_pow(struct udevice *ud, uint64_t orig, uint64_t *scaled)
 	rsens = g_r_sense * 10;
 
 	/* Can we overflow here? */
-	power = orig * reso;
+	power = orig * reso * 64;
 #ifdef CHECK_OVERFLOW
 	{
 		uint64_t tmp = power;
 
 		do_div(tmp, src->reso_uv);
 		do_div(tmp, ret);
+		do_div(tmp, 64);
 
 		if (tmp != orig)
 			printf("scale_adc_pow(): pow OVERFLOW, %llu != %llu\n",
 			       tmp, orig);
 	}
 #endif
-
 
 	do_div(power, rsens);
 	*scaled = power;
@@ -1460,12 +1474,12 @@ static int measure_avg(struct udevice *ud, int type, long samples,
 		break;
 	case TYPE_CURRENT:
 		ret = get_avg_current(ud, &avg, &accum);
-		printf("Samples %lu, interval %lu, average current %llu  [0.01 nA] accumulated %llu [0.01 nA]\n",
+		printf("Samples %lu, interval %lu, average current %llu mA accumulated %llu mA\n",
 		       samples, interval, avg, accum);
 		break;
 	case TYPE_POWER:
 		ret = get_avg_power(ud, &avg, &accum);
-		printf("Samples %lu, interval %lu, average power %llu accumulated %llu\n",
+		printf("Samples %lu, interval %lu, average power %llu nW accumulated %llu nW\n",
 		       samples, interval, avg, accum);
 		break;
 	default:
@@ -1633,8 +1647,8 @@ static int do_adc_get(struct cmd_tbl *cmdtp, int flag, int argc,
 	uint sample;
 	const char* unit[] = {
 		[TYPE_VOLTAGE] = "uV",
-		[TYPE_CURRENT] = "uA",
-		[TYPE_POWER] = "uW",
+		[TYPE_CURRENT] = "mA",
+		[TYPE_POWER] = "nW",
 		[TYPE_TEMPERATURE] = "mC"
 	};
 
